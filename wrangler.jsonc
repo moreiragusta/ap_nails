@@ -1,0 +1,36 @@
+// Configuração do Worker (API + site). Um projeto por cliente NUKKI.
+// Para um novo cliente: troque "name", "database_name", "database_id", "bucket_name" e as vars.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ap-nails",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/photos/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ap-nails",
+      // Substituir pelo id gerado em `wrangler d1 create ap-nails`
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "PHOTOS", "bucket_name": "ap-nails-photos" }
+  ],
+  "triggers": {
+    // A cada 15 min: alerta de 3h, expiração de 48h e aviso de lembretes
+    "crons": ["*/15 * * * *"]
+  },
+  "vars": {
+    "BUSINESS_TZ": "America/Sao_Paulo",
+    "VAPID_SUBJECT": "mailto:contato@nukki.com.br",
+    "VAPID_PUBLIC_KEY": ""
+  }
+  // Segredos (wrangler secret put): VAPID_PRIVATE_KEY, ADMIN_INITIAL_PASSWORD
+}

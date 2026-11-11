@@ -1,0 +1,6 @@
+# Copie para .dev.vars (não versionado) e preencha. Usado só no ambiente local.
+# Gere as chaves com: npm run vapid
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+# Senha inicial do painel no ambiente local
+ADMIN_INITIAL_PASSWORD=apnails2026
