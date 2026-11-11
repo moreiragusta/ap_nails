@@ -99,7 +99,7 @@ export const apiHeaders: MiddlewareHandler<AppEnv> = async (c, next) => {
 // ------------------------------------------------------------ eventos de segurança
 
 export type SecurityEvent =
-  | 'login_ok' | 'login_fail' | 'login_locked' | 'logout'
+  | 'login_ok' | 'login_fail' | 'login_locked' | 'account_locked' | 'logout'
   | 'password_created' | 'password_changed' | 'recovery_used' | 'recovery_fail' | 'recovery_regenerated'
   | 'setup_link_used' | 'setup_link_fail' | 'sessions_revoked';
 

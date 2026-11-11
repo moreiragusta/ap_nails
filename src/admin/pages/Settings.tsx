@@ -418,6 +418,8 @@ type IconName = Parameters<typeof Icon>[0]['name'];
 const EVENT_LABEL: Record<string, [string, IconName, string]> = {
   login_ok: ['Entrou no painel', 'check', 'ok'],
   login_fail: ['Senha errada', 'alert', 'bad'],
+  account_locked: ['Acesso bloqueado (3 senhas erradas)', 'alert', 'bad'],
+  login_locked: ['Tentativa com o acesso bloqueado', 'alert', 'bad'],
   logout: ['Saiu do painel', 'logout', ''],
   password_created: ['Senha criada', 'shield', 'ok'],
   password_changed: ['Senha trocada', 'shield', 'ok'],

@@ -139,25 +139,102 @@ export async function logout(c: Ctx) {
 
 // ------------------------------------------------------------ login
 
+// Bloqueio da conta: 3 senhas erradas seguidas (de qualquer aparelho) bloqueiam o login.
+// Cada novo bloqueio dura mais; o código de recuperação desbloqueia na hora.
+const MAX_FAILS = 3;
+const LOCK_STEPS = [30 * MIN, 2 * 60 * MIN, 24 * 60 * MIN];
+const LOGIN_ACCOUNT = 'login:account';
 const LOGIN_IP = (ip: string) => `login:ip:${ip}`;
-const LOGIN_ALL = 'login:all';
+
+interface Lock { level: number; until: number; at: number }
+
+async function readLock(db: D1Database): Promise<Lock | null> {
+  const raw = await getInternal(db, 'lock');
+  if (!raw) return null;
+  const lock = JSON.parse(raw) as Lock;
+  // Passadas 24h sem novo bloqueio, a escala recomeça do primeiro nível.
+  return Date.now() - lock.until > 24 * 60 * MIN ? null : lock;
+}
+
+export async function clearLock(db: D1Database) {
+  await db.batch([
+    db.prepare("DELETE FROM settings WHERE key = '_lock'"),
+    db.prepare('DELETE FROM rate_hits WHERE key = ?').bind(LOGIN_ACCOUNT),
+  ]);
+}
+
+export async function lockStatus(db: D1Database): Promise<number | null> {
+  const lock = await readLock(db);
+  return lock && lock.until > Date.now() ? lock.until : null;
+}
+
+function lockedError(until: number) {
+  return bad(
+    'Acesso bloqueado após 3 senhas erradas. Para entrar agora, use “Esqueci minha senha” com o seu código de recuperação.',
+    423,
+    { code: 'account_locked', locked_until: until },
+  );
+}
+
+/** Cria o bloqueio (uma vez só, mesmo com pedidos simultâneos) e devolve até quando vale. */
+async function applyLock(c: Ctx, previous: Lock | null): Promise<number> {
+  const db = c.env.DB;
+  const active = await readLock(db);
+  if (active && active.until > Date.now()) return active.until; // outro pedido já bloqueou
+  const level = Math.min((previous?.level ?? 0) + 1, LOCK_STEPS.length);
+  const until = Date.now() + LOCK_STEPS[level - 1];
+  await db.batch([
+    db.prepare("INSERT INTO settings (key, value) VALUES ('_lock', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .bind(JSON.stringify({ level, until, at: Date.now() } satisfies Lock)),
+    db.prepare('DELETE FROM rate_hits WHERE key = ?').bind(LOGIN_ACCOUNT),
+  ]);
+  await logEvent(c, 'account_locked', `nível ${level}`);
+  c.executionCtx.waitUntil(notifyAdmin(c.env, {
+    title: 'Acesso ao painel bloqueado',
+    body: `3 senhas erradas seguidas (${describeDevice(userAgent(c))}). Se não foi você, a sua senha continua segura.`,
+    url: '/admin',
+    tag: 'account-locked',
+  }));
+  return until;
+}
+
+const failCount = async (db: D1Database) => (await db.prepare('SELECT COUNT(*) AS n FROM rate_hits WHERE key = ? AND at > ?')
+  .bind(LOGIN_ACCOUNT, Date.now() - 24 * 60 * MIN).first<{ n: number }>())?.n ?? 0;
 
 export async function login(c: Ctx, password: unknown) {
   const db = c.env.DB;
   const ip = clientIp(c);
-  await checkLimits(db, [
-    { key: LOGIN_IP(ip), max: 5, windowMs: 15 * MIN },
-    { key: LOGIN_ALL, max: 20, windowMs: 60 * MIN, message: 'O acesso foi bloqueado por 1 hora após muitas tentativas erradas. Se esqueceu a senha, use o código de recuperação.' },
-  ]);
+  await checkLimits(db, [{ key: LOGIN_IP(ip), max: 10, windowMs: 60 * MIN }]);
+
+  const lock = await readLock(db);
+  if (lock && lock.until > Date.now()) {
+    await logEvent(c, 'login_locked');
+    await failDelay();
+    throw lockedError(lock.until);
+  }
+
+  // Reserva a tentativa ANTES de conferir a senha: pedidos simultâneos não
+  // conseguem passar de 3 palpites.
+  await hit(db, LOGIN_ACCOUNT, LOGIN_IP(ip));
+  const attempt = await failCount(db);
+  if (attempt > MAX_FAILS) {
+    // Rajada de pedidos ao mesmo tempo: os excedentes nem conferem a senha e viram bloqueio.
+    await failDelay();
+    throw lockedError(await applyLock(c, lock));
+  }
+
   const stored = await getInternal(db, 'password_hash');
   const ok = typeof password === 'string' && password.length <= 128 && await verifyPassword(password, stored);
   if (!ok) {
-    await hit(db, LOGIN_IP(ip), LOGIN_ALL);
-    await logEvent(c, 'login_fail');
+    await logEvent(c, 'login_fail', `${attempt}/${MAX_FAILS}`);
     await failDelay();
     if (!stored) throw bad('A senha ainda não foi criada. Use o link de primeiro acesso.', 401);
-    throw bad('Senha incorreta.', 401);
+    if (attempt >= MAX_FAILS) throw lockedError(await applyLock(c, lock));
+    const left = MAX_FAILS - attempt;
+    throw bad(`Senha incorreta. ${left === 1 ? 'Resta 1 tentativa' : `Restam ${left} tentativas`} antes do bloqueio.`, 401, { attempts_left: left });
   }
+
+  await clearLock(db);
   await clearHits(db, LOGIN_IP(ip));
   await startSession(c);
   await logEvent(c, 'login_ok');
@@ -219,7 +296,8 @@ export async function recoverWithCode(c: Ctx, code: unknown, password: unknown) 
   }
   await setInternal(db, 'password_hash', await hashPassword(password as string));
   await revokeSessions(c, null);
-  await clearHits(db, LOGIN_ALL, `login:ip:${ip}`);
+  await clearLock(db); // o código de recuperação desbloqueia o acesso na hora
+  await clearHits(db, LOGIN_IP(ip));
   const fresh = await newRecoveryCode(db); // o código usado deixa de valer
   await logEvent(c, 'recovery_used');
   await startSession(c);

@@ -138,7 +138,7 @@ O site fica em `https://ap-nails.<sua-conta>.workers.dev`. Para usar domínio pr
 | --- | --- |
 | Senha | Criada pela própria administradora (link de uso único). PBKDF2-SHA256 com 100 mil iterações e sal. Mínimo de 8 caracteres e bloqueio de senhas óbvias |
 | Recuperação | Código de 16 caracteres mostrado uma única vez; após o uso é trocado. Só o hash fica guardado |
-| Tentativas de login | 5 erros em 15 min bloqueiam o IP; 20 erros em 1 h bloqueiam o login por 1 h; atraso proposital em cada erro |
+| Tentativas de login | **3 senhas erradas seguidas bloqueiam a conta** (de qualquer aparelho): 30 min no 1º bloqueio, 2 h no 2º, 24 h a partir do 3º. Nem a senha certa entra durante o bloqueio; o código de recuperação desbloqueia na hora. A Amanda recebe aviso no celular. Também há limite de 10 tentativas/h por IP e atraso proposital em cada erro |
 | Antirrobô | Cloudflare Turnstile no agendamento, login, recuperação e primeiro acesso, validado no servidor |
 | Agendamento público | Turnstile + 6 pedidos/h por IP + 60/h no total + no máximo 2 pendentes por WhatsApp |
 | Sessões | Cookie `HttpOnly`, `Secure` e `SameSite=Strict`, válido por 30 dias. Lista de aparelhos, “desconectar outros” e aviso no celular a cada novo acesso |

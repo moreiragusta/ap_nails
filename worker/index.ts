@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { nowIn } from '../shared/time';
-import { hasPassword, login, logout, recoverWithCode, requireAuth, setupWithToken } from './auth';
+import { hasPassword, lockStatus, login, logout, recoverWithCode, requireAuth, setupWithToken } from './auth';
 import { runScheduled } from './cron';
 import { getSettings } from './db';
 import { HttpError, type AppEnv, type Env } from './env';
@@ -51,6 +51,7 @@ admin.use('*', sameOrigin);
 admin.get('/auth/config', async (c) => c.json({
   turnstile_site_key: c.env.TURNSTILE_SITE_KEY || null,
   has_password: await hasPassword(c.env.DB),
+  locked_until: await lockStatus(c.env.DB),
 }));
 
 admin.post('/login', async (c) => {
