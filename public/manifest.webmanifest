@@ -1,0 +1,17 @@
+{
+  "name": "AP Nails · Painel",
+  "short_name": "AP Nails",
+  "description": "Agenda, clientes e financeiro da AP Nails",
+  "lang": "pt-BR",
+  "start_url": "/admin",
+  "scope": "/admin",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FBF6F3",
+  "theme_color": "#9E6258",
+  "icons": [
+    { "src": "/brand/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
