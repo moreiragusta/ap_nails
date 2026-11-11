@@ -4,24 +4,18 @@ import type { Service, Settings } from '../../shared/types';
 import { api, ApiError, errorMessage } from '../lib/api';
 import { registerSW } from '../lib/push';
 import './admin.css';
+import AppointmentForm from './AppointmentForm';
 import AppointmentSheet from './AppointmentSheet';
 import { AdminContext } from './context';
 import Agenda from './pages/Agenda';
 import Clients from './pages/Clients';
 import Finance from './pages/Finance';
+import More from './pages/More';
 import Services from './pages/Services';
-import SettingsPage from './pages/Settings';
+import SettingsSection from './pages/Settings';
 import { GlobalLayers, Icon } from './ui';
 
 interface Me { today: string; settings: Settings }
-
-const TABS = [
-  { to: '/admin', end: true, icon: 'calendar', label: 'Agenda' },
-  { to: '/admin/clientes', icon: 'users', label: 'Clientes' },
-  { to: '/admin/servicos', icon: 'sparkle', label: 'Serviços' },
-  { to: '/admin/financeiro', icon: 'wallet', label: 'Financeiro' },
-  { to: '/admin/ajustes', icon: 'settings', label: 'Ajustes' },
-] as const;
 
 export default function AdminApp() {
   const [state, setState] = useState<'loading' | 'login' | 'ready' | 'error'>('loading');
@@ -42,7 +36,7 @@ export default function AdminApp() {
 
   useEffect(() => {
     document.title = 'AP Nails · Painel';
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#9E6258');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#FAF6F2');
     load();
     const onUnauthorized = () => setState('login');
     window.addEventListener('apn:unauthorized', onUnauthorized);
@@ -60,11 +54,12 @@ export default function AdminApp() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [state]);
 
-  if (state === 'loading') return <div className="admin boot"><img src="/brand/icon-192.png" alt="" /><p>Carregando…</p></div>;
+  if (state === 'loading') return <div className="admin boot"><span className="mono" /><p className="muted">Carregando…</p></div>;
   if (state === 'login') return <Login onDone={load} />;
   if (state === 'error' || !me) {
     return (
       <div className="admin boot">
+        <span className="mono" />
         <p>Não foi possível conectar.</p>
         <button type="button" className="btn btn-primary" onClick={() => { setState('loading'); load(); }}>Tentar de novo</button>
       </div>
@@ -90,42 +85,65 @@ function Shell() {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const apptId = Number(params.get('appt')) || null;
-  const title = TABS.find((t) => ('end' in t ? location.pathname === t.to || location.pathname === `${t.to}/` : location.pathname.startsWith(t.to)))?.label ?? 'Agenda';
+  const creating = params.get('novo') === '1';
 
   useEffect(() => { window.scrollTo(0, 0); }, [location.pathname]);
 
+  const closeParams = (...keys: string[]) => {
+    keys.forEach((k) => params.delete(k));
+    setParams(params, { replace: true });
+  };
+  const openNew = () => {
+    params.set('novo', '1');
+    setParams(params);
+  };
+
+  const inMore = ['/admin/mais', '/admin/servicos', '/admin/ajustes'].some((p) => location.pathname.startsWith(p));
+
   return (
     <div className="admin">
-      <header className="topbar">
-        <img src="/brand/icon-192.png" alt="" className="topbar-logo" />
-        <div>
-          <p className="topbar-brand">AP Nails</p>
-          <h1>{title}</h1>
-        </div>
-      </header>
-      <main className="content">
+      <main>
         <Routes>
           <Route index element={<Agenda />} />
           <Route path="clientes" element={<Clients />} />
-          <Route path="servicos" element={<Services />} />
           <Route path="financeiro" element={<Finance />} />
-          <Route path="ajustes" element={<SettingsPage />} />
+          <Route path="mais" element={<More />} />
+          <Route path="servicos" element={<Services />} />
+          <Route path="ajustes/:section" element={<SettingsSection />} />
           <Route path="*" element={<Agenda />} />
         </Routes>
       </main>
+
       <nav className="tabbar" aria-label="Menu">
-        {TABS.map((t) => (
-          <NavLink key={t.to} to={t.to} end={'end' in t} className={({ isActive }) => `tab${isActive ? ' is-active' : ''}`}>
-            <Icon name={t.icon} />
-            <span>{t.label}</span>
-          </NavLink>
-        ))}
+        <NavLink to="/admin" end className={({ isActive }) => `tab${isActive ? ' is-active' : ''}`}>
+          <Icon name="calendar" /><span>Agenda</span>
+        </NavLink>
+        <NavLink to="/admin/clientes" className={({ isActive }) => `tab${isActive ? ' is-active' : ''}`}>
+          <Icon name="users" /><span>Clientes</span>
+        </NavLink>
+        <button type="button" className="tab-plus" onClick={openNew} aria-label="Novo agendamento">
+          <Icon name="plus" size={26} />
+        </button>
+        <NavLink to="/admin/financeiro" className={({ isActive }) => `tab${isActive ? ' is-active' : ''}`}>
+          <Icon name="wallet" /><span>Financeiro</span>
+        </NavLink>
+        <NavLink to="/admin/mais" className={`tab${inMore ? ' is-active' : ''}`}>
+          <Icon name="dots" /><span>Mais</span>
+        </NavLink>
       </nav>
+
+      {creating && (
+        <AppointmentForm
+          defaultDate={params.get('data') ?? undefined}
+          defaultTime={params.get('hora') ?? undefined}
+          onClose={() => closeParams('novo', 'data', 'hora')}
+        />
+      )}
       {apptId && (
         <AppointmentSheet
           id={apptId}
           initialMode={params.get('do') === 'complete' ? 'complete' : 'view'}
-          onClose={() => { params.delete('appt'); params.delete('do'); setParams(params, { replace: true }); }}
+          onClose={() => closeParams('appt', 'do')}
         />
       )}
     </div>
@@ -152,17 +170,17 @@ function Login({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <div className="admin login">
+    <div className="admin boot">
       <form className="login-card" onSubmit={submit}>
-        <img src="/brand/icon-192.png" alt="" className="login-logo" />
-        <p className="login-brand">AP Nails</p>
-        <h1>Painel da Amanda</h1>
+        <span className="mono" />
+        <p className="eyebrow">AP Nails</p>
+        <h1 className="display">Olá, Amanda</h1>
         <label className="field">
           <span>Senha</span>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" autoFocus />
         </label>
         {error && <p className="form-error" role="alert">{error}</p>}
-        <button type="submit" className="btn btn-primary btn-block" disabled={busy || !password}>{busy ? 'Entrando…' : 'Entrar'}</button>
+        <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={busy || !password}>{busy ? 'Entrando…' : 'Entrar'}</button>
         <p className="login-help">Esqueceu a senha? Fale com a NUKKI.</p>
       </form>
     </div>

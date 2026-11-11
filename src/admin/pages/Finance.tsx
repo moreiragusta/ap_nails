@@ -1,215 +1,286 @@
 import { useEffect, useState } from 'react';
-import { fmtDateBR, fmtDayMonth, fmtMoney, monthShort } from '../../../shared/format';
-import { addDays, addMonths, daysBetween, endOfMonth, startOfMonth } from '../../../shared/time';
+import { fmtDayMonth, monthName, monthShort } from '../../../shared/format';
+import { addDays, addMonths, daysBetween, endOfMonth, startOfMonth, weekdayOf } from '../../../shared/time';
 import { PAYMENT_LABEL, type Appointment, type Expense, type PaymentMethod } from '../../../shared/types';
 import { api, errorMessage } from '../../lib/api';
 import { useApptActions } from '../actions';
 import { useAdmin } from '../context';
-import { bumpData, centsToInput, confirmDialog, Empty, Icon, Loading, parseMoney, Sheet, toast, useDataVersion } from '../ui';
+import { Avatar, bumpData, centsToInput, confirmDialog, Empty, Icon, Loading, Money, PageHead, parseMoney, SecHead, Sheet, toast, useDataVersion } from '../ui';
 
 interface Report {
   from: string; to: string;
   summary: { revenue: number; expenses: number; profit: number; count: number; ticket: number; expected: number; expected_count: number };
+  previous: { revenue: number; count: number } | null;
   by_day: { date: string; total: number; count: number }[];
-  by_service: { name: string; count: number; total: number }[];
+  by_month: { month: string; revenue: number; expenses: number }[];
+  by_service: { name: string; count: number; total: number; photo_url: string | null }[];
   by_client: { id: number; name: string; count: number; total: number }[];
-  by_method: { method: PaymentMethod; count: number; total: number }[];
+  by_method: { method: PaymentMethod | null; count: number; total: number }[];
   by_category: { category: string; total: number }[];
-  monthly: { month: string; revenue: number; expenses: number; profit: number }[];
   history: Appointment[];
   expenses: Expense[];
 }
 
-type Period = 'month' | 'last' | '7d' | 'custom';
+type Period = 'week' | 'month' | 'year' | 'custom';
+const PAY_COLORS: Record<string, string> = { pix: '#9e6258', credit: '#d9a089', cash: '#c9b4ad', debit: '#e7d6cf', null: '#efe5e0' };
+
+function rangeFor(period: Period, anchor: string, custom: { from: string; to: string }) {
+  if (period === 'week') {
+    const from = addDays(anchor, -weekdayOf(anchor));
+    return { from, to: addDays(from, 6), cmpFrom: addDays(from, -7), cmpTo: addDays(from, -1) };
+  }
+  if (period === 'month') {
+    const from = startOfMonth(anchor);
+    const prev = addMonths(from, -1);
+    return { from, to: endOfMonth(anchor), cmpFrom: prev, cmpTo: endOfMonth(prev) };
+  }
+  if (period === 'year') {
+    const y = Number(anchor.slice(0, 4));
+    return { from: `${y}-01-01`, to: `${y}-12-31`, cmpFrom: `${y - 1}-01-01`, cmpTo: `${y - 1}-12-31` };
+  }
+  const len = daysBetween(custom.from, custom.to) + 1;
+  return { from: custom.from, to: custom.to, cmpFrom: addDays(custom.from, -len), cmpTo: addDays(custom.from, -1) };
+}
+
+function label(period: Period, from: string, to: string) {
+  if (period === 'month') return `${monthName(Number(from.slice(5, 7)))} de ${from.slice(0, 4)}`;
+  if (period === 'year') return from.slice(0, 4);
+  return `${fmtDayMonth(from)} a ${fmtDayMonth(to)}`;
+}
+
+const CMP_LABEL: Record<Period, (from: string) => string> = {
+  week: () => 'vs semana anterior',
+  month: (from) => `vs ${monthShort(Number(addMonths(from, -1).slice(5, 7)))}`,
+  year: (from) => `vs ${Number(from.slice(0, 4)) - 1}`,
+  custom: () => 'vs período anterior',
+};
 
 export default function Finance() {
   const { today } = useAdmin();
   const [period, setPeriod] = useState<Period>('month');
+  const [anchor, setAnchor] = useState(today);
   const [custom, setCustom] = useState({ from: startOfMonth(today), to: today });
-  const [tab, setTab] = useState<'summary' | 'history' | 'expenses'>('summary');
   const [data, setData] = useState<Report | null>(null);
-  const [expense, setExpense] = useState<Expense | 'new' | null>(null);
+  const [sheet, setSheet] = useState<'history' | 'services' | 'expenses' | Expense | 'new-expense' | null>(null);
   const version = useDataVersion();
-
-  const range = period === 'month' ? { from: startOfMonth(today), to: endOfMonth(today) }
-    : period === 'last' ? { from: addMonths(today, -1), to: endOfMonth(addMonths(today, -1)) }
-      : period === '7d' ? { from: addDays(today, -6), to: today }
-        : custom;
+  const r = rangeFor(period, anchor, custom);
 
   useEffect(() => {
-    setData(null);
-    api<Report>(`/api/admin/finance?from=${range.from}&to=${range.to}`).then(setData).catch((e) => toast(errorMessage(e), 'error'));
-  }, [range.from, range.to, version]);
+    api<Report>(`/api/admin/finance?from=${r.from}&to=${r.to}&cmp_from=${r.cmpFrom}&cmp_to=${r.cmpTo}`)
+      .then(setData).catch((e) => toast(errorMessage(e), 'error'));
+  }, [r.from, r.to, r.cmpFrom, r.cmpTo, version]);
+
+  const shift = (dir: 1 | -1) => setAnchor(period === 'week' ? addDays(anchor, 7 * dir) : period === 'month' ? addMonths(anchor, dir) : `${Number(anchor.slice(0, 4)) + dir}${anchor.slice(4)}`);
+  const atPresent = r.to >= today;
 
   return (
-    <div className="finance">
-      <div className="chip-row period">
-        {([['month', 'Este mês'], ['last', 'Mês passado'], ['7d', '7 dias'], ['custom', 'Escolher']] as [Period, string][]).map(([k, l]) => (
-          <button key={k} type="button" className={`chip${period === k ? ' is-selected' : ''}`} onClick={() => setPeriod(k)}>{l}</button>
+    <div className="page">
+      <PageHead title="Financeiro" />
+      <div className="seg">
+        {([['week', 'Semana'], ['month', 'Mês'], ['year', 'Ano'], ['custom', 'Período']] as [Period, string][]).map(([k, l]) => (
+          <button key={k} type="button" className={period === k ? 'is-active' : ''} onClick={() => { setPeriod(k); setAnchor(today); }}>{l}</button>
         ))}
       </div>
-      {period === 'custom' && (
+      {period === 'custom' ? (
         <div className="two-cols">
           <label className="field"><span>De</span><input type="date" value={custom.from} onChange={(e) => e.target.value && setCustom({ ...custom, from: e.target.value })} /></label>
           <label className="field"><span>Até</span><input type="date" value={custom.to} onChange={(e) => e.target.value && setCustom({ ...custom, to: e.target.value })} /></label>
         </div>
-      )}
-      <p className="hint period-label">{fmtDateBR(range.from)} a {fmtDateBR(range.to)}</p>
-
-      <div className="seg">
-        <button type="button" className={tab === 'summary' ? 'is-active' : ''} onClick={() => setTab('summary')}>Resumo</button>
-        <button type="button" className={tab === 'history' ? 'is-active' : ''} onClick={() => setTab('history')}>Atendimentos</button>
-        <button type="button" className={tab === 'expenses' ? 'is-active' : ''} onClick={() => setTab('expenses')}>Despesas</button>
-      </div>
-
-      {!data ? <Loading /> : tab === 'summary' ? <Summary r={data} /> : tab === 'history' ? <History r={data} /> : (
-        <ExpensesList r={data} onEdit={setExpense} />
+      ) : (
+        <div className="period-nav">
+          <button type="button" className="icon-btn" onClick={() => shift(-1)} aria-label="Anterior"><Icon name="left" /></button>
+          <span>{label(period, r.from, r.to)}</span>
+          <button type="button" className="icon-btn" onClick={() => shift(1)} disabled={atPresent} aria-label="Próximo"><Icon name="right" /></button>
+        </div>
       )}
 
-      {tab === 'expenses' && (
-        <button type="button" className="fab" onClick={() => setExpense('new')} aria-label="Nova despesa"><Icon name="plus" size={28} /></button>
-      )}
-      {expense && <ExpenseForm expense={expense === 'new' ? null : expense} onClose={() => setExpense(null)} />}
-    </div>
-  );
-}
-
-function Summary({ r }: { r: Report }) {
-  const s = r.summary;
-  return (
-    <>
-      <div className="kpis">
-        <div className="kpi kpi-main"><span>Faturamento</span><strong>{fmtMoney(s.revenue)}</strong></div>
-        <div className="kpi"><span>Despesas</span><strong>{fmtMoney(s.expenses)}</strong></div>
-        <div className={`kpi ${s.profit >= 0 ? 'kpi-good' : 'kpi-bad'}`}><span>Lucro</span><strong>{fmtMoney(s.profit)}</strong></div>
-        <div className="kpi"><span>Atendimentos</span><strong>{s.count}</strong></div>
-        <div className="kpi"><span>Ticket médio</span><strong>{fmtMoney(s.ticket)}</strong></div>
-        <div className="kpi"><span>Previsto</span><strong>{fmtMoney(s.expected)}</strong><small>{s.expected_count} agendados</small></div>
-      </div>
-
-      <section className="card">
-        <h3>Faturamento por dia</h3>
-        <DayBars r={r} />
-      </section>
-
-      <section className="card">
-        <h3>Últimos 6 meses</h3>
-        <MonthBars months={r.monthly} />
-      </section>
-
-      <RankCard title="Serviços mais vendidos" rows={r.by_service.map((x) => ({ label: x.name, value: x.total, note: `${x.count}×` }))} />
-      <RankCard title="Clientes que mais vieram" rows={r.by_client.map((x) => ({ label: x.name, value: x.total, note: `${x.count} ${x.count === 1 ? 'visita' : 'visitas'}` }))} />
-      <RankCard title="Formas de pagamento" rows={r.by_method.map((x) => ({ label: x.method ? PAYMENT_LABEL[x.method] : 'Não informado', value: x.total, note: `${x.count}×` }))} />
-      <RankCard title="Despesas por categoria" rows={r.by_category.map((x) => ({ label: x.category, value: x.total }))} tone="expense" />
-    </>
-  );
-}
-
-function DayBars({ r }: { r: Report }) {
-  const n = daysBetween(r.from, r.to) + 1;
-  if (n > 62) return <p className="hint">Escolha um período de até 2 meses para ver por dia.</p>;
-  const days = Array.from({ length: n }, (_, i) => addDays(r.from, i));
-  const max = Math.max(1, ...r.by_day.map((d) => d.total));
-  const every = n > 20 ? 5 : n > 10 ? 2 : 1;
-  if (!r.by_day.length) return <p className="hint">Nenhum atendimento concluído no período.</p>;
-  return (
-    <div className="bars" role="img" aria-label="Faturamento por dia">
-      {days.map((d, i) => {
-        const v = r.by_day.find((x) => x.date === d)?.total ?? 0;
-        return (
-          <div key={d} className="bar-col" title={`${fmtDayMonth(d)}: ${fmtMoney(v)}`}>
-            <div className="bar" style={{ height: `${(v / max) * 100}%` }} />
-            <span className="bar-label">{i % every === 0 ? Number(d.slice(8)) : ''}</span>
+      {!data ? <Loading /> : (
+        <>
+          <div className="hero">
+            <div className="eyebrow">Faturamento</div>
+            <Money cents={data.summary.revenue} showCents />
+            <Delta now={data.summary.revenue} before={data.previous?.revenue ?? null} label={CMP_LABEL[period](r.from)} />
           </div>
-        );
-      })}
-    </div>
-  );
-}
 
-function MonthBars({ months }: { months: Report['monthly'] }) {
-  const max = Math.max(1, ...months.flatMap((m) => [m.revenue, m.expenses]));
-  return (
-    <>
-      <div className="bars months" role="img" aria-label="Faturamento e despesas por mês">
-        {months.map((m) => (
-          <div key={m.month} className="bar-col">
-            <div className="bar-pair">
-              <div className="bar" style={{ height: `${(m.revenue / max) * 100}%` }} title={`Faturamento ${fmtMoney(m.revenue)}`} />
-              <div className="bar bar-exp" style={{ height: `${(m.expenses / max) * 100}%` }} title={`Despesas ${fmtMoney(m.expenses)}`} />
-            </div>
-            <span className="bar-label">{monthShort(Number(m.month.slice(5)))}</span>
+          <div className="split surface">
+            <div><span>Despesas</span><Money cents={data.summary.expenses} /></div>
+            <div><span>{data.summary.profit < 0 ? 'Prejuízo' : 'Lucro'}</span><Money cents={data.summary.profit} /></div>
           </div>
-        ))}
-      </div>
-      <div className="legend"><span><i className="sw-rev" />Faturamento</span><span><i className="sw-exp" />Despesas</span></div>
-      <table className="mini-table">
-        <thead><tr><th>Mês</th><th>Lucro</th></tr></thead>
-        <tbody>
-          {[...months].reverse().map((m) => (
-            <tr key={m.month}><td>{monthShort(Number(m.month.slice(5)))}/{m.month.slice(2, 4)}</td><td className={m.profit < 0 ? 'neg' : ''}>{fmtMoney(m.profit)}</td></tr>
-          ))}
-        </tbody>
-      </table>
-    </>
-  );
-}
 
-function RankCard({ title, rows, tone }: { title: string; rows: { label: string; value: number; note?: string }[]; tone?: 'expense' }) {
-  const max = Math.max(1, ...rows.map((r) => r.value));
-  return (
-    <section className="card">
-      <h3>{title}</h3>
-      {rows.length === 0 ? <p className="hint">Sem dados no período.</p> : (
-        <ul className="rank">
-          {rows.map((r) => (
-            <li key={r.label}>
-              <div className="rank-top"><span>{r.label}</span><strong>{fmtMoney(r.value)}</strong></div>
-              <div className="rank-bar"><i className={tone === 'expense' ? 'exp' : ''} style={{ width: `${(r.value / max) * 100}%` }} /></div>
-              {r.note && <small>{r.note}</small>}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
+          <div className="chart surface"><Chart data={data} period={period} today={today} /></div>
 
-function History({ r }: { r: Report }) {
-  const act = useApptActions();
-  if (!r.history.length) return <Empty icon="wallet" title="Nenhum atendimento concluído" text="Os atendimentos aparecem aqui quando você toca em Concluir." />;
-  return (
-    <ul className="history">
-      {r.history.map((a) => (
-        <li key={a.id}>
-          <button type="button" onClick={() => act.open(a)}>
-            <span className="h-date">{fmtDayMonth(a.date)}<small>{a.start_time}</small></span>
-            <span className="h-main">{a.client_name}<small>{a.service_name}{a.payment_method ? ` · ${PAYMENT_LABEL[a.payment_method]}` : ''}</small></span>
-            <span className="h-value">{fmtMoney(a.price_cents)}</span>
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-}
+          <div className="trio">
+            <div><span>Atendimentos</span><b>{data.summary.count}</b></div>
+            <div><span>Ticket médio</span><Money cents={data.summary.ticket} /></div>
+            <div><span>A receber</span><Money cents={data.summary.expected} /></div>
+          </div>
 
-function ExpensesList({ r, onEdit }: { r: Report; onEdit: (e: Expense) => void }) {
-  if (!r.expenses.length) return <Empty icon="wallet" title="Nenhuma despesa no período" text="Toque no + para lançar materiais, aluguel, cursos…" />;
-  return (
-    <>
-      <p className="hint">Total: <strong>{fmtMoney(r.summary.expenses)}</strong></p>
-      <ul className="history">
-        {r.expenses.map((e) => (
-          <li key={e.id}>
-            <button type="button" onClick={() => onEdit(e)}>
-              <span className="h-date">{fmtDayMonth(e.date)}</span>
-              <span className="h-main">{e.description}<small>{e.category}</small></span>
-              <span className="h-value neg">− {fmtMoney(e.amount_cents)}</span>
+          <SecHead title="Mais vendidos" action={data.by_service.length > 4 ? <button type="button" className="link" onClick={() => setSheet('services')}>Ver todos</button> : undefined} />
+          {data.by_service.length === 0 ? <p className="hint">Nenhum atendimento concluído no período.</p> : <ServiceRows rows={data.by_service.slice(0, 4)} />}
+
+          {data.by_client.length > 0 && (
+            <>
+              <SecHead title="Clientes que mais vieram" />
+              <div className="rows">
+                {data.by_client.slice(0, 3).map((c) => (
+                  <div key={c.id} className="row-item">
+                    <Avatar name={c.name} />
+                    <span className="grow"><span className="row-title name">{c.name}</span><small>{c.count} {c.count === 1 ? 'visita' : 'visitas'}</small></span>
+                    <Money cents={c.total} />
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {data.by_method.length > 0 && (
+            <>
+              <SecHead title="Como recebeu" />
+              <PayBar rows={data.by_method} />
+            </>
+          )}
+
+          <SecHead title="Despesas" action={<button type="button" className="link" onClick={() => setSheet('new-expense')}>+ Lançar</button>} />
+          {data.expenses.length === 0 ? <p className="hint">Nenhuma despesa lançada no período.</p> : (
+            <>
+              <ExpenseRows rows={data.expenses.slice(0, 4)} onOpen={(e) => setSheet(e)} />
+              {data.expenses.length > 4 && <button type="button" className="link" style={{ marginTop: 10 }} onClick={() => setSheet('expenses')}>Ver todas as {data.expenses.length} despesas</button>}
+            </>
+          )}
+
+          {data.history.length > 0 && (
+            <button type="button" className="btn btn-outline btn-block" style={{ marginTop: 26 }} onClick={() => setSheet('history')}>
+              Ver os {data.history.length} atendimentos do período
             </button>
-          </li>
-        ))}
-      </ul>
+          )}
+        </>
+      )}
+
+      {data && sheet === 'history' && <HistorySheet rows={data.history} onClose={() => setSheet(null)} />}
+      {data && sheet === 'services' && <Sheet title="Serviços vendidos" onClose={() => setSheet(null)}><ServiceRows rows={data.by_service} /></Sheet>}
+      {data && sheet === 'expenses' && (
+        <Sheet title="Despesas" onClose={() => setSheet(null)}>
+          <ExpenseRows rows={data.expenses} onOpen={(e) => setSheet(e)} />
+        </Sheet>
+      )}
+      {(sheet === 'new-expense' || (sheet && typeof sheet === 'object')) && (
+        <ExpenseForm expense={typeof sheet === 'object' ? sheet : null} onClose={() => setSheet(null)} />
+      )}
+    </div>
+  );
+}
+
+function Delta({ now, before, label: text }: { now: number; before: number | null; label: string }) {
+  if (before === null || (before === 0 && now === 0)) return null;
+  if (before === 0) return <span className="delta up">novo {text}</span>;
+  const pct = Math.round(((now - before) / before) * 100);
+  const cls = pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat';
+  return <span className={`delta ${cls}`}>{pct > 0 ? '+' : ''}{pct}% {text}</span>;
+}
+
+function Chart({ data, period, today }: { data: Report; period: Period; today: string }) {
+  if (period === 'year') {
+    const max = Math.max(1, ...data.by_month.map((m) => m.revenue));
+    return (
+      <>
+        <div className="bars" role="img" aria-label="Faturamento por mês">
+          {data.by_month.map((m) => (
+            <div key={m.month} className="bar-col" title={m.month}>
+              <div className={`bar${m.revenue ? ' v' : ''}${m.month === today.slice(0, 7) ? ' today' : ''}`} style={{ height: `${Math.max(3, (m.revenue / max) * 100)}%` }} />
+            </div>
+          ))}
+        </div>
+        <div className="axis">{data.by_month.map((m) => <span key={m.month}>{monthShort(Number(m.month.slice(5)))[0].toUpperCase()}</span>)}</div>
+      </>
+    );
+  }
+  const n = daysBetween(data.from, data.to) + 1;
+  if (n > 62) return <p className="hint" style={{ margin: 0 }}>Escolha até 2 meses para ver o gráfico por dia.</p>;
+  const days = Array.from({ length: n }, (_, i) => addDays(data.from, i));
+  const max = Math.max(1, ...data.by_day.map((d) => d.total));
+  const mid = days[Math.floor((n - 1) / 2)];
+  return (
+    <>
+      <div className="bars" role="img" aria-label="Faturamento por dia">
+        {days.map((d) => {
+          const v = data.by_day.find((x) => x.date === d)?.total ?? 0;
+          return (
+            <div key={d} className="bar-col" title={fmtDayMonth(d)}>
+              <div className={`bar${v ? ' v' : ''}${d === today ? ' today' : ''}`} style={{ height: `${Math.max(3, (v / max) * 100)}%` }} />
+            </div>
+          );
+        })}
+      </div>
+      <div className="axis"><span>{fmtDayMonth(days[0])}</span><span>{fmtDayMonth(mid)}</span><span>{fmtDayMonth(days[n - 1])}</span></div>
     </>
+  );
+}
+
+function ServiceRows({ rows }: { rows: Report['by_service'] }) {
+  return (
+    <div className="rows">
+      {rows.map((s) => (
+        <div key={s.name} className="row-item">
+          {s.photo_url ? <img className="thumb" src={s.photo_url} alt="" /> : <span className="thumb" />}
+          <span className="grow"><span className="row-title">{s.name}</span><small>{s.count} {s.count === 1 ? 'atendimento' : 'atendimentos'}</small></span>
+          <Money cents={s.total} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PayBar({ rows }: { rows: Report['by_method'] }) {
+  const total = rows.reduce((t, r) => t + r.total, 0) || 1;
+  return (
+    <>
+      <div className="paybar">
+        {rows.map((r) => <i key={String(r.method)} style={{ flex: r.total, background: PAY_COLORS[String(r.method)] }} />)}
+      </div>
+      <div className="legend">
+        {rows.map((r) => (
+          <span key={String(r.method)}>
+            <i style={{ background: PAY_COLORS[String(r.method)] }} />
+            {r.method ? PAYMENT_LABEL[r.method] : 'Não informado'} <b>{Math.round((r.total / total) * 100)}%</b>
+          </span>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function ExpenseRows({ rows, onOpen }: { rows: Expense[]; onOpen: (e: Expense) => void }) {
+  return (
+    <div className="rows">
+      {rows.map((e) => (
+        <button key={e.id} type="button" className="row-item" onClick={() => onOpen(e)}>
+          <span className="menu-icon"><Icon name="wallet" size={18} /></span>
+          <span className="grow"><span className="row-title">{e.description}</span><small>{e.category} · <span className="num">{fmtDayMonth(e.date)}</span></small></span>
+          <Money cents={-e.amount_cents} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function HistorySheet({ rows, onClose }: { rows: Appointment[]; onClose: () => void }) {
+  const act = useApptActions();
+  return (
+    <Sheet title="Atendimentos" onClose={onClose}>
+      {rows.length === 0 ? <Empty icon="wallet" title="Nenhum atendimento" /> : (
+        <div className="rows">
+          {rows.map((a) => (
+            <button key={a.id} type="button" className="row-item" onClick={() => act.open(a)}>
+              <span className="grow">
+                <span className="row-title name">{a.client_name}</span>
+                <small>{a.service_name} · <span className="num">{fmtDayMonth(a.date)}</span>{a.payment_method ? ` · ${PAYMENT_LABEL[a.payment_method]}` : ''}</small>
+              </span>
+              <Money cents={a.price_cents} />
+            </button>
+          ))}
+        </div>
+      )}
+    </Sheet>
   );
 }
 
@@ -243,22 +314,20 @@ function ExpenseForm({ expense, onClose }: { expense: Expense | null; onClose: (
   }
 
   return (
-    <Sheet title={expense ? 'Editar despesa' : 'Nova despesa'} onClose={onClose}
-      footer={<button type="button" className="btn btn-primary btn-block" onClick={save}>Salvar</button>}>
-      <label className="field"><span>Descrição</span><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex.: Esmaltes e lixas" maxLength={120} /></label>
-      <div className="two-cols">
-        <label className="field"><span>Valor (R$)</span><input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="0,00" /></label>
-        <label className="field"><span>Data</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
-      </div>
+    <Sheet title={expense ? 'Despesa' : 'Lançar despesa'} onClose={onClose}
+      footer={<button type="button" className="btn btn-primary btn-block btn-lg" onClick={save}>Salvar</button>}>
+      <label className="field"><span>Valor</span><input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="R$ 0,00" autoFocus={!expense} style={{ fontSize: 22, fontWeight: 600 }} /></label>
+      <label className="field"><span>Descrição</span><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex.: esmaltes e lixas" maxLength={120} /></label>
       <div className="field">
         <span>Categoria</span>
-        <div className="chip-row">
+        <div className="chips">
           {settings.expense_categories.map((c) => (
             <button key={c} type="button" className={`chip${category === c ? ' is-selected' : ''}`} onClick={() => setCategory(c)}>{c}</button>
           ))}
         </div>
       </div>
-      {expense && <button type="button" className="link-btn danger" onClick={remove}><Icon name="trash" size={16} /> Excluir despesa</button>}
+      <label className="field"><span>Data</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
+      {expense && <button type="button" className="text-btn danger" onClick={remove}><Icon name="trash" size={16} /> Excluir despesa</button>}
     </Sheet>
   );
 }

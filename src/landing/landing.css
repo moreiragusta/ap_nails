@@ -33,30 +33,30 @@
 }
 .ornament-divider span { flex: 1; height: 1px; background: linear-gradient(90deg, transparent, currentColor, transparent); }
 
-.eyebrow {
+.landing .eyebrow {
   margin: 0; text-align: center; font-family: var(--font-script); font-size: 30px; line-height: 1;
   color: var(--gold-600);
 }
-.eyebrow.light { color: var(--gold-300); }
-.section-title {
+.landing .eyebrow.light { color: var(--gold-300); }
+.landing .section-title {
   margin: 4px 0 0; text-align: center; font-family: var(--font-title); font-weight: 500;
   font-size: clamp(26px, 7vw, 38px); letter-spacing: 0.22em; text-transform: uppercase; color: var(--rose-800);
 }
-.section-title.light { color: var(--gold-200); }
+.landing .section-title.light { color: var(--gold-200); }
 
 /* ------------------------------------------------ abertura */
-.hero {
+.landing .hero {
   position: relative; min-height: 100svh; padding: 48px 20px 56px;
   display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
   background: radial-gradient(120% 80% at 50% 30%, #b3786c 0%, #a86e63 35%, #94584f 75%, #7a4840 100%);
   color: var(--gold-200); overflow: hidden;
 }
-.hero-glow {
+.landing .hero-glow {
   position: absolute; inset: -20% -40% auto; height: 70%;
   background: radial-gradient(closest-side, rgba(248, 220, 205, .28), transparent);
   pointer-events: none;
 }
-.hero-logo {
+.landing .hero-logo {
   /* Provisório (recorte do flyer): com o logo em PNG transparente, as máscaras podem sair. */
   position: relative; width: min(330px, 84vw); aspect-ratio: 58 / 63; object-fit: cover;
   -webkit-mask-image: linear-gradient(to right, transparent, #000 14%, #000 86%, transparent),
@@ -66,13 +66,13 @@
     linear-gradient(to bottom, transparent, #000 10%, #000 90%, transparent);
   mask-composite: intersect;
 }
-.hero-headline {
+.landing .hero-headline {
   position: relative; margin: 8px 0 0; font-size: clamp(22px, 6vw, 30px); font-weight: 400; letter-spacing: 0.06em;
   max-width: 18ch; line-height: 1.3; color: var(--gold-200);
 }
-.hero .ornament-divider { color: var(--gold-300); margin-bottom: 26px; }
-.hero-cta { position: relative; }
-.hero-sub { position: relative; margin: 22px 0 0; max-width: 34ch; font-size: 17px; color: var(--gold-200); opacity: .92; }
+.landing .hero .ornament-divider { color: var(--gold-300); margin-bottom: 26px; }
+.landing .hero-cta { position: relative; }
+.landing .hero-sub { position: relative; margin: 22px 0 0; max-width: 34ch; font-size: 17px; color: var(--gold-200); opacity: .92; }
 
 /* ------------------------------------------------ seções */
 .section { padding: 64px 20px; }
@@ -152,10 +152,10 @@
 .about-text { text-align: center; }
 .about-text .section-title { margin-bottom: 18px; }
 .about-text p { margin: 0 0 14px; }
-.signature { font-family: var(--font-script); font-size: 34px; color: var(--gold-600); margin-top: 6px !important; }
+.landing .signature { font-family: var(--font-script); font-size: 34px; color: var(--gold-600); margin-top: 6px !important; }
 
 /* ------------------------------------------------ localização */
-.address { display: inline-flex; gap: 8px; align-items: flex-start; margin: 0 auto 18px; max-width: 36ch; color: var(--rose-800); }
+.landing .address { display: inline-flex; gap: 8px; align-items: flex-start; margin: 0 auto 18px; max-width: 36ch; color: var(--rose-800); }
 .map-frame { max-width: 720px; margin: 0 auto 22px; border-radius: var(--radius-lg); overflow: hidden; border: 3px solid var(--gold-300); box-shadow: var(--shadow-sm); }
 .map-frame iframe { display: block; width: 100%; height: 280px; border: 0; }
 
@@ -269,13 +269,13 @@
 .bk-summary span { flex: 1; }
 .bk-summary span::first-letter { text-transform: uppercase; }
 
-.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
-.field span { font-size: 14px; font-weight: 600; color: var(--rose-800); }
-.field input {
+.landing .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.landing .field span { font-size: 14px; font-weight: 600; color: var(--rose-800); }
+.landing .field input {
   min-height: 52px; padding: 0 16px; border-radius: 12px; border: 1.5px solid var(--rose-200);
   background: var(--white); font-size: 17px; outline: none;
 }
-.field input:focus { border-color: var(--rose-600); box-shadow: 0 0 0 3px rgba(158, 98, 88, .15); }
+.landing .field input:focus { border-color: var(--rose-600); box-shadow: 0 0 0 3px rgba(158, 98, 88, .15); }
 .bk-privacy { font-size: 13px; color: var(--rose-700); margin: 0; }
 
 .bk-done { text-align: center; padding: 18px 0 0; }

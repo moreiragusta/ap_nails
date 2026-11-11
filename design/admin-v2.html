@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AP Nails · Painel v2 (proposta)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Jost:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --ivory: #faf6f2; --paper: #ffffff; --ink: #2e1f1c; --ink-2: #7a625c; --ink-3: #a8928c;
+    --line: #efe5e0; --mauve: #7a4840; --mauve-2: #9e6258; --blush: #f4e9e5;
+    --rg: linear-gradient(135deg, #f3d2c1, #d9a089 55%, #f0cbb8);
+    --sage: #5f7f61; --sage-bg: #e8efe6; --amber: #a8742c; --amber-bg: #f7eddc;
+    --wa: #25a35a;
+    --serif: 'Cormorant Garamond', Georgia, serif; --sans: 'Jost', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #ece4df; font-family: var(--sans); color: var(--ink); }
+  .page { max-width: 1240px; margin: 0 auto; padding: 40px 24px 60px; }
+  .intro { max-width: 760px; margin-bottom: 36px; }
+  .intro h1 { font-family: var(--serif); font-weight: 500; font-size: 40px; margin: 0 0 6px; }
+  .intro p { color: var(--ink-2); margin: 0 0 16px; line-height: 1.5; }
+  .principles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+  .principles div { background: var(--paper); border-radius: 14px; padding: 12px 14px; font-size: 14px; line-height: 1.45; color: var(--ink-2); }
+  .principles b { display: block; color: var(--ink); font-weight: 600; margin-bottom: 2px; }
+
+  .phones { display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; }
+  .phone-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .phone-label { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); }
+  .phone {
+    position: relative; width: 375px; height: 812px; border-radius: 44px; overflow: hidden;
+    background: var(--ivory); box-shadow: 0 30px 60px rgba(63, 37, 34, .18), 0 0 0 10px #2b201e;
+    display: flex; flex-direction: column;
+  }
+  .status { height: 44px; display: flex; justify-content: space-between; align-items: center; padding: 0 26px; font-size: 14px; font-weight: 600; flex-shrink: 0; }
+  .scroll { flex: 1; overflow: hidden; padding: 0 20px; }
+
+  /* ---------- tipografia */
+  .eyebrow { font-size: 13px; color: var(--ink-2); letter-spacing: .02em; }
+  .display { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.05; margin: 2px 0 0; }
+  .serif { font-family: var(--serif); }
+  .muted { color: var(--ink-2); }
+  .h-sec { display: flex; justify-content: space-between; align-items: baseline; margin: 22px 0 10px; }
+  .h-sec h3 { margin: 0; font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2); font-weight: 600; }
+  .h-sec a { font-size: 13.5px; color: var(--mauve); text-decoration: none; font-weight: 500; }
+
+  /* ---------- números e dinheiro: Jost com algarismos alinhados; R$ menor e discreto */
+  .money { font-family: var(--sans); font-variant-numeric: lining-nums tabular-nums; font-weight: 600; white-space: nowrap; }
+  .cur { font-size: .62em; font-weight: 500; color: var(--ink-2); margin-right: .22em; letter-spacing: .02em; }
+  .neg .cur { color: inherit; opacity: .8; }
+
+  /* ---------- topo */
+  .top { display: flex; justify-content: space-between; align-items: flex-start; padding-top: 6px; }
+  .mono { width: 42px; height: 42px; border-radius: 50%; background: url('/brand/icon-192.png') center/cover; box-shadow: 0 0 0 2px var(--paper), 0 0 0 3px #e7c5b6; }
+  .summary { display: flex; gap: 8px; align-items: center; margin-top: 8px; font-size: 14px; color: var(--ink-2); }
+  .summary i { width: 3px; height: 3px; border-radius: 50%; background: var(--ink-3); }
+
+  /* ---------- dias */
+  .days { display: flex; gap: 6px; margin: 18px -20px 0; padding: 0 20px; overflow: hidden; }
+  .day { flex: 0 0 46px; height: 64px; border-radius: 23px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; background: var(--paper); }
+  .day span { font-size: 11.5px; color: var(--ink-2); }
+  .day b { font-size: 18px; font-weight: 500; }
+  .day em { width: 4px; height: 4px; border-radius: 50%; background: #d9a089; margin-top: 2px; }
+  .day.sel { background: var(--mauve); color: #fff6f1; }
+  .day.sel span { color: #f0cbb8; }
+  .day.sel em { background: #f0cbb8; }
+  .day.off { background: transparent; }
+  .day.off b, .day.off span { color: var(--ink-3); }
+
+  /* ---------- inbox */
+  .inbox { background: var(--paper); border-radius: 20px; padding: 4px 0; }
+  .task { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+  .task + .task { border-top: 1px solid var(--line); }
+  .dot { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; }
+  .dot.amber { background: var(--amber-bg); color: var(--amber); }
+  .dot.wa { background: #e3f4ea; color: var(--wa); }
+  .dot.grey { background: #f1ecea; color: var(--ink-2); }
+  .task p { margin: 0; flex: 1; font-size: 15px; }
+  .task small { display: block; color: var(--ink-2); font-size: 13px; }
+  .chev { color: var(--ink-3); }
+
+  /* ---------- linha do tempo */
+  .timeline { position: relative; display: grid; grid-template-columns: 44px 1fr; }
+  .hours { display: flex; flex-direction: column; }
+  .hours span { height: 64px; font-size: 12px; color: var(--ink-3); transform: translateY(-7px); }
+  .lane { position: relative; border-left: 1px solid var(--line); }
+  .lane::before { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(to bottom, transparent 0 63px, var(--line) 63px 64px); }
+  .block { position: absolute; left: 8px; right: 0; border-radius: 16px; padding: 10px 12px; background: var(--paper); box-shadow: 0 1px 2px rgba(63,37,34,.06), 0 6px 18px rgba(63,37,34,.06); display: flex; flex-direction: column; }
+  .block.free { background: transparent; box-shadow: none; border: 1.5px dashed #e3cfc7; justify-content: center; align-items: center; flex-direction: row; gap: 8px; color: var(--ink-2); font-size: 14px; }
+  .block .bt { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .block h4 { margin: 0; font-family: var(--serif); font-size: 21px; font-weight: 600; line-height: 1.1; }
+  .block p { margin: 2px 0 0; font-size: 13.5px; color: var(--ink-2); }
+  .block .bf { display: flex; justify-content: space-between; align-items: center; margin-top: auto; }
+  .block .accent { position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 2px; }
+  .pill { font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+  .pill.ok { background: var(--sage-bg); color: var(--sage); }
+  .pill.wait { background: var(--amber-bg); color: var(--amber); }
+  .ghost { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; color: var(--mauve); background: var(--blush); border: 0; border-radius: 999px; padding: 7px 12px; }
+  .ghost svg { color: var(--wa); }
+  .now { position: absolute; left: -5px; right: 0; height: 2px; background: #d9a089; }
+  .now::before { content: ''; position: absolute; left: 0; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: #d9a089; }
+
+  /* ---------- navegação */
+  .nav { flex-shrink: 0; height: 84px; background: rgba(255,255,255,.92); backdrop-filter: blur(10px); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(5, 1fr); align-items: start; padding-top: 10px; }
+  .nav a { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; color: var(--ink-3); text-decoration: none; font-weight: 500; }
+  .nav a.on { color: var(--mauve); }
+  .nav .plus { width: 52px; height: 52px; border-radius: 50%; background: var(--mauve); color: #fff; display: grid; place-items: center; margin-top: -6px; box-shadow: 0 8px 18px rgba(122,72,64,.35); }
+
+  /* ---------- sheet */
+  .dim { position: absolute; inset: 0; background: rgba(46, 31, 28, .38); }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; top: 70px; background: var(--ivory); border-radius: 28px 28px 0 0; padding: 10px 20px 20px; display: flex; flex-direction: column; }
+  .handle { width: 40px; height: 5px; border-radius: 3px; background: #e2d3cd; margin: 0 auto 14px; }
+  .who { display: flex; align-items: center; gap: 12px; }
+  .avatar { width: 52px; height: 52px; border-radius: 50%; background: var(--rg); display: grid; place-items: center; font-family: var(--serif); font-size: 21px; font-weight: 600; color: var(--mauve); }
+  .who h2 { margin: 0; font-family: var(--serif); font-weight: 600; font-size: 25px; line-height: 1.1; }
+  .who small { color: var(--ink-2); font-size: 13.5px; }
+  .round { width: 42px; height: 42px; border-radius: 50%; background: var(--paper); display: grid; place-items: center; color: var(--mauve); box-shadow: 0 1px 3px rgba(63,37,34,.08); }
+  .round.wa { color: var(--wa); }
+  .when { margin-top: 18px; background: var(--paper); border-radius: 20px; padding: 16px 18px; }
+  .when .big { font-family: var(--sans); font-variant-numeric: lining-nums tabular-nums; font-size: 28px; font-weight: 500; letter-spacing: -.01em; line-height: 1; }
+  .when .row { display: flex; justify-content: space-between; align-items: baseline; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 15px; }
+  .when .row b { font-family: var(--sans); font-variant-numeric: lining-nums tabular-nums; font-size: 20px; font-weight: 600; }
+  .steps { display: flex; margin: 18px 4px 4px; }
+  .step { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); text-align: center; position: relative; }
+  .step::before { content: ''; position: absolute; top: 9px; left: -50%; right: 50%; height: 2px; background: #e3cfc7; }
+  .step:first-child::before { display: none; }
+  .step.done::before, .step.cur::before { background: #d9a089; }
+  .step i { position: relative; width: 20px; height: 20px; border-radius: 50%; border: 2px solid #e3cfc7; background: var(--ivory); display: grid; place-items: center; font-style: normal; font-size: 11px; color: #fff; }
+  .step.done i { background: #d9a089; border-color: #d9a089; }
+  .step.cur i { border-color: var(--mauve); background: var(--paper); box-shadow: 0 0 0 4px var(--blush); }
+  .step.cur { color: var(--ink); font-weight: 600; }
+  .step small { color: var(--ink-3); font-size: 10.5px; }
+  .cta { margin-top: 18px; height: 54px; border-radius: 16px; background: var(--mauve); color: #fff6f1; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 16px; font-weight: 600; }
+  .links { display: flex; justify-content: space-around; margin-top: 10px; }
+  .links span { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; color: var(--mauve); padding: 8px; }
+  .links span.danger { color: #a24a45; }
+  .note { margin-top: 14px; background: var(--paper); border-radius: 16px; padding: 12px 14px; font-size: 14px; color: var(--ink-2); display: flex; gap: 10px; align-items: flex-start; }
+  .note b { color: var(--ink); font-weight: 500; }
+  .facts { margin-top: 10px; font-size: 13px; color: var(--ink-2); text-align: center; }
+
+  /* ---------- financeiro */
+  .seg { display: flex; background: #f1e8e4; border-radius: 12px; padding: 3px; margin-top: 14px; }
+  .seg span { flex: 1; text-align: center; padding: 7px 0; font-size: 13.5px; border-radius: 9px; color: var(--ink-2); }
+  .seg span.on { background: var(--paper); color: var(--ink); font-weight: 600; box-shadow: 0 1px 3px rgba(63,37,34,.08); }
+  .month { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; font-size: 15px; font-weight: 500; }
+  .month span { color: var(--ink-3); font-size: 20px; }
+  .hero { margin-top: 14px; }
+  .hero .num { font-family: var(--sans); font-variant-numeric: lining-nums tabular-nums; font-size: 44px; font-weight: 500; line-height: 1; letter-spacing: -.01em; }
+  .hero .num small { font-size: 22px; color: var(--ink-2); font-weight: 400; }
+  .delta { display: inline-block; margin-left: 8px; font-size: 12.5px; font-weight: 600; padding: 3px 8px; border-radius: 999px; background: var(--sage-bg); color: var(--sage); vertical-align: middle; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border-radius: 16px; overflow: hidden; margin-top: 14px; }
+  .split div { background: var(--paper); padding: 12px 14px; }
+  .split span { font-size: 12.5px; color: var(--ink-2); }
+  .split b { display: block; font-family: var(--sans); font-variant-numeric: lining-nums tabular-nums; font-size: 20px; font-weight: 600; }
+  .split b.neg { color: #a24a45; }
+  .chart { margin-top: 14px; background: var(--paper); border-radius: 20px; padding: 14px 14px 10px; }
+  .bars { height: 92px; display: flex; align-items: flex-end; gap: 4px; }
+  .bars i { flex: 1; border-radius: 4px 4px 2px 2px; background: #efdcd4; }
+  .bars i.v { background: linear-gradient(180deg, #d9a089, #9e6258); }
+  .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); margin-top: 6px; }
+  .trio { display: flex; margin-top: 14px; }
+  .trio div { flex: 1; text-align: center; }
+  .trio div + div { border-left: 1px solid var(--line); }
+  .trio span { font-size: 12px; color: var(--ink-2); }
+  .trio b { display: block; font-family: var(--sans); font-variant-numeric: lining-nums tabular-nums; font-size: 19px; font-weight: 600; }
+  .best { background: var(--paper); border-radius: 20px; padding: 4px 14px; }
+  .best .r { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+  .best .r + .r { border-top: 1px solid var(--line); }
+  .best img { width: 44px; height: 44px; border-radius: 12px; object-fit: cover; }
+  .best p { margin: 0; flex: 1; font-size: 14.5px; }
+  .best small { display: block; color: var(--ink-2); font-size: 12.5px; }
+  .best b { font-family: var(--sans); font-variant-numeric: lining-nums tabular-nums; font-size: 16px; font-weight: 600; }
+  .paybar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin-top: 4px; }
+  .legend2 { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-size: 12.5px; color: var(--ink-2); }
+  .legend2 i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+
+  .before-after { margin-top: 44px; background: var(--paper); border-radius: 20px; padding: 22px 26px; }
+  .before-after h2 { font-family: var(--serif); font-weight: 500; font-size: 28px; margin: 0 0 12px; }
+  .before-after table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  .before-after th { text-align: left; color: var(--ink-2); font-weight: 500; font-size: 12.5px; letter-spacing: .08em; text-transform: uppercase; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  .before-after td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; line-height: 1.45; }
+  .before-after td:first-child { font-weight: 600; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="intro">
+    <h1>Painel da Amanda — proposta v2</h1>
+    <p>Direção “ateliê”: o painel deve parecer a extensão do espaço dela, calmo, claro e com a marca presente. Não pode parecer planilha. Ela usa entre um atendimento e outro, com uma mão e às vezes com a unha secando: cada tela responde uma pergunta e tem uma ação principal.</p>
+    <div class="principles">
+      <div><b>Uma pergunta por tela</b>“Quem eu atendo hoje e o que falta fazer?”, “Quanto entrou?”.</div>
+      <div><b>Tarefas só quando existem</b>Pendências viram uma caixa de entrada que some quando está tudo em dia, em vez de contadores zerados.</div>
+      <div><b>A agenda é uma linha do tempo</b>O expediente aparece em blocos proporcionais à duração, então os horários livres ficam visíveis.</div>
+      <div><b>Marca com leveza</b>Serifada elegante nos nomes, horários e valores. Rose gold só em detalhes. Fundo marfim, quase sem bordas.</div>
+      <div><b>Cores de status suaves</b>Sálvia para confirmado e âmbar para aguardando, sem o verde do WhatsApp gritando na tela inteira.</div>
+      <div><b>Polegar primeiro</b>Botão “+” central na barra; Serviços e Ajustes vão para “Mais”, porque não são uso diário.</div>
+    </div>
+  </div>
+
+  <div class="phones">
+    <!-- =================================================== HOJE -->
+    <div class="phone-wrap">
+      <div class="phone-label">1 · Agenda (início)</div>
+      <div class="phone">
+        <div class="status"><span>16:42</span><span>●●● ▮</span></div>
+        <div class="scroll">
+          <div class="top">
+            <div>
+              <div class="eyebrow">Quarta, 11 de novembro</div>
+              <h1 class="display">Boa tarde, Amanda</h1>
+            </div>
+            <div class="mono"></div>
+          </div>
+          <div class="summary"><span>3 clientes</span><i></i><span>18h às 22h</span><i></i><span>R$ 130 previstos</span></div>
+
+          <div class="days">
+            <div class="day sel"><span>hoje</span><b>11</b><em></em></div>
+            <div class="day"><span>qui</span><b>12</b><em></em></div>
+            <div class="day off"><span>sex</span><b>13</b></div>
+            <div class="day"><span>sáb</span><b>14</b><em></em></div>
+            <div class="day off"><span>dom</span><b>15</b></div>
+            <div class="day"><span>seg</span><b>16</b></div>
+            <div class="day"><span>ter</span><b>17</b><em></em></div>
+          </div>
+
+          <div class="h-sec"><h3>Precisa de você</h3></div>
+          <div class="inbox">
+            <div class="task">
+              <div class="dot amber"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+              <p>2 confirmações para enviar<small>Fernanda (amanhã) e Gabriela (20/11)</small></p>
+              <span class="chev">›</span>
+            </div>
+            <div class="task">
+              <div class="dot wa"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2z"/></svg></div>
+              <p>1 lembrete de hoje<small>Juliana · 18:00</small></p>
+              <span class="chev">›</span>
+            </div>
+          </div>
+
+          <div class="h-sec"><h3>Hoje</h3><a>Ver semana</a></div>
+          <div class="timeline">
+            <div class="hours"><span>18h</span><span>19h</span><span>20h</span><span>21h</span><span>22h</span></div>
+            <div class="lane" style="height:256px">
+              <div class="block" style="top:3px;height:122px">
+                <div class="accent" style="background:var(--sage)"></div>
+                <div class="bt"><h4>Juliana Souza</h4><span class="pill ok">Confirmada</span></div>
+                <p>Esmaltação em gel · 18:00–20:00</p>
+                <div class="bf"><span class="money" style="font-size:17px"><span class="cur">R$</span>60</span>
+                  <span class="ghost"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2z"/></svg>Lembrar</span></div>
+              </div>
+              <div class="block" style="top:131px;height:58px;flex-direction:row;align-items:center;gap:10px">
+                <div class="accent" style="background:var(--amber)"></div>
+                <div style="flex:1"><h4 style="font-size:18px">Fernanda Dias</h4><p>Manicure · 20:00–21:00</p></div>
+                <span class="pill wait">Aguardando</span>
+              </div>
+              <div class="block free" style="top:195px;height:58px">Livre 21:00–22:00 <b style="color:var(--mauve)">+ Encaixar</b></div>
+            </div>
+          </div>
+        </div>
+        <nav class="nav">
+          <a class="on"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4.5" width="18" height="16" rx="3"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg>Agenda</a>
+          <a><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/></svg>Clientes</a>
+          <a><span class="plus"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg></span></a>
+          <a><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7.5V18a2 2 0 0 0 2 2h13a1 1 0 0 0 1-1v-3"/><path d="M20 12v-3a1 1 0 0 0-1-1H6a2 2 0 0 1 0-4h11"/></svg>Financeiro</a>
+          <a><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg>Mais</a>
+        </nav>
+      </div>
+    </div>
+
+    <!-- =================================================== DETALHE -->
+    <div class="phone-wrap">
+      <div class="phone-label">2 · Detalhe do atendimento</div>
+      <div class="phone">
+        <div class="status"><span>16:42</span><span>●●● ▮</span></div>
+        <div class="dim"></div>
+        <div class="sheet">
+          <div class="handle"></div>
+          <div class="who">
+            <div class="avatar">JS</div>
+            <div style="flex:1"><h2>Juliana Souza</h2><small>(18) 99123-4567 · 4ª visita</small></div>
+            <div class="round wa"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2z"/></svg></div>
+            <div class="round"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1z"/></svg></div>
+          </div>
+
+          <div class="when">
+            <div class="eyebrow">Hoje, quarta-feira</div>
+            <div class="big">18:00 – 20:00</div>
+            <div class="row"><span>Esmaltação em gel <span class="muted">· 2h</span></span><b><span class="cur">R$</span>60</b></div>
+          </div>
+
+          <div class="steps">
+            <div class="step done"><i>✓</i>Agendou<small>pelo site</small></div>
+            <div class="step done"><i>✓</i>Confirmação<small>enviada 10:14</small></div>
+            <div class="step done"><i>✓</i>Confirmou<small>10:32</small></div>
+            <div class="step cur"><i></i>Atendimento<small>18:00</small></div>
+          </div>
+
+          <div class="cta">Concluir e registrar pagamento</div>
+          <div class="links">
+            <span><svg width="15" height="15" viewBox="0 0 24 24" fill="#25a35a"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2z"/></svg>Lembrar</span>
+            <span>Remarcar</span>
+            <span class="danger">Cancelar</span>
+          </div>
+
+          <div class="note"><span>✎</span><div><b>Prefere tons nude.</b> Alergia a acetona forte.</div></div>
+          <div class="facts">Última visita 14/10 · R$ 240 no total</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================================================== FINANCEIRO -->
+    <div class="phone-wrap">
+      <div class="phone-label">3 · Financeiro</div>
+      <div class="phone">
+        <div class="status"><span>16:42</span><span>●●● ▮</span></div>
+        <div class="scroll">
+          <h1 class="display" style="margin-top:6px">Financeiro</h1>
+          <div class="seg"><span>Semana</span><span class="on">Mês</span><span>Ano</span><span>Período</span></div>
+          <div class="month"><span>‹</span>Novembro de 2026<span>›</span></div>
+
+          <div class="hero">
+            <div class="eyebrow">Faturamento</div>
+            <div class="num"><span class="cur">R$</span>425<small>,00</small><span class="delta">+18% vs out</span></div>
+          </div>
+          <div class="split">
+            <div><span>Despesas</span><b><span class="cur">R$</span>485</b></div>
+            <div><span>Lucro</span><b class="neg">−<span class="cur">R$</span>60</b></div>
+          </div>
+
+          <div class="chart">
+            <div class="bars">
+              <i style="height:4%"></i><i style="height:4%"></i><i class="v" style="height:23%"></i><i class="v" style="height:40%"></i><i class="v" style="height:57%"></i><i style="height:4%"></i><i class="v" style="height:100%"></i><i style="height:4%"></i><i style="height:4%"></i><i class="v" style="height:23%"></i><i class="v" style="height:40%"></i><i style="height:4%"></i><i style="height:4%"></i><i style="height:4%"></i><i style="height:4%"></i>
+            </div>
+            <div class="axis"><span>1</span><span>8</span><span>15</span></div>
+          </div>
+
+          <div class="trio">
+            <div><span>Atendimentos</span><b>6</b></div>
+            <div><span>Ticket médio</span><b><span class="cur">R$</span>71</b></div>
+            <div><span>A receber</span><b><span class="cur">R$</span>35</b></div>
+          </div>
+
+          <div class="h-sec"><h3>Mais vendidos</h3><a>Ver tudo</a></div>
+          <div class="best">
+            <div class="r"><img src="/gallery/trabalho-4.webp" alt="" /><p>Alongamento<small>1 atendimento</small></p><b><span class="cur">R$</span>150</b></div>
+            <div class="r"><img src="/gallery/trabalho-3.webp" alt="" /><p>Esmaltação em gel<small>2 atendimentos</small></p><b><span class="cur">R$</span>120</b></div>
+            <div class="r"><img src="/gallery/trabalho-1.webp" alt="" /><p>Manicure + Gel<small>1 atendimento</small></p><b><span class="cur">R$</span>85</b></div>
+          </div>
+
+          <div class="h-sec"><h3>Como recebeu</h3></div>
+          <div class="paybar"><i style="flex:59;background:#9e6258"></i><i style="flex:20;background:#d9a089"></i><i style="flex:13;background:#c9b4ad"></i><i style="flex:8;background:#e7d6cf"></i></div>
+          <div class="legend2"><span><i style="background:#9e6258"></i>Pix 59%</span><span><i style="background:#d9a089"></i>Crédito 20%</span><span><i style="background:#c9b4ad"></i>Dinheiro 13%</span><span><i style="background:#e7d6cf"></i>Débito 8%</span></div>
+        </div>
+        <nav class="nav">
+          <a><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4.5" width="18" height="16" rx="3"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg>Agenda</a>
+          <a><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/></svg>Clientes</a>
+          <a><span class="plus"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg></span></a>
+          <a class="on"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7.5V18a2 2 0 0 0 2 2h13a1 1 0 0 0 1-1v-3"/><path d="M20 12v-3a1 1 0 0 0-1-1H6a2 2 0 0 1 0-4h11"/></svg>Financeiro</a>
+          <a><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg>Mais</a>
+        </nav>
+      </div>
+    </div>
+  </div>
+
+  <div class="before-after">
+    <h2>O que muda em relação à versão atual</h2>
+    <table>
+      <thead><tr><th>Ponto</th><th>Hoje</th><th>Proposta</th></tr></thead>
+      <tbody>
+        <tr><td>Topo</td><td>Faixa marrom pesada com logo e título repetindo a aba</td><td>Saudação e data em serifada sobre fundo claro; a marca aparece no monograma</td></tr>
+        <tr><td>Pendências</td><td>3 caixas de contador sempre visíveis, mesmo zeradas</td><td>“Precisa de você”: lista com nomes, que some quando está tudo em dia</td></tr>
+        <tr><td>Navegação de datas</td><td>Setas + intervalo + ícone de calendário + faixa da semana</td><td>Uma faixa de dias deslizável (dias fechados apagados); toque no mês abre o calendário</td></tr>
+        <tr><td>Dia</td><td>Lista de cartões iguais com bordas, selo e botões verdes</td><td>Linha do tempo do expediente com blocos do tamanho do atendimento e espaços livres visíveis</td></tr>
+        <tr><td>Status</td><td>Amarelo, verde e roxo saturados; selo + borda + texto repetem a informação</td><td>Sálvia e âmbar suaves; uma marca de cor por cartão</td></tr>
+        <tr><td>Detalhe</td><td>4 botões do mesmo peso + 14 linhas de datas</td><td>Uma ação principal; o histórico do agendamento vira uma linha de progresso; contexto da cliente junto</td></tr>
+        <tr><td>Financeiro</td><td>6 caixas iguais e gráficos pequenos</td><td>Um número em destaque com comparação ao mês anterior; mais vendidos com foto do serviço</td></tr>
+        <tr><td>Menu</td><td>5 abas, incluindo Serviços e Ajustes, mais um “+” flutuando sobre o conteúdo</td><td>Agenda · Clientes · <b>+</b> · Financeiro · Mais (Serviços, Horários e folgas, Mensagens, Conta)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+</body>
+</html>

@@ -56,10 +56,18 @@ appointmentRoutes.get('/slots', async (c) => {
   return c.json({ slots: free.slots, suggested: blocks.slots });
 });
 
+/** Agendamento + contexto da cliente (visitas, total gasto, última visita, observações). */
 appointmentRoutes.get('/:id', async (c) => {
   const a = await getAppointment(c.env.DB, idParam(c.req.param('id')));
   if (!a) throw bad('Agendamento não encontrado.', 404);
-  return c.json(a);
+  const ctx = await c.env.DB.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM appointments WHERE client_id = ?1 AND status = 'done') AS visits,
+       (SELECT COALESCE(SUM(price_cents), 0) FROM appointments WHERE client_id = ?1 AND status = 'done') AS total_cents,
+       (SELECT MAX(date) FROM appointments WHERE client_id = ?1 AND status = 'done' AND id <> ?2 AND date <= ?3) AS last_visit,
+       (SELECT notes FROM clients WHERE id = ?1) AS notes`,
+  ).bind(a.client_id, a.id, a.date).first<{ visits: number; total_cents: number; last_visit: string | null; notes: string }>();
+  return c.json({ ...a, client: ctx });
 });
 
 /** Agendamento lançado pela Amanda: já nasce confirmado. */

@@ -1,23 +1,31 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useLocation } from 'react-router';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router';
 import { fmtDateBR, TEMPLATE_VARS } from '../../../shared/format';
 import type { DateException, ExceptionKind, Settings, WeeklyHour } from '../../../shared/types';
 import { api, errorMessage } from '../../lib/api';
 import { maskPhone } from '../../lib/phone';
 import { enablePush, pushState, type PushState } from '../../lib/push';
 import { useAdmin, whatsappFor } from '../context';
-import { bumpData, confirmDialog, Icon, Sheet, toast } from '../ui';
+import { bumpData, confirmDialog, Empty, Icon, PageHead, Sheet, toast } from '../ui';
 
-const DAY_NAMES = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+type SaveFn = (patch: Partial<Settings>, msg?: string) => Promise<boolean>;
 
-export default function SettingsPage() {
+const TITLES: Record<string, string> = {
+  negocio: 'Seu negócio',
+  horarios: 'Horários',
+  folgas: 'Folgas e exceções',
+  regras: 'Regras de agendamento',
+  mensagens: 'Mensagens',
+  notificacoes: 'Notificações',
+  'clientes-despesas': 'Clientes e despesas',
+  conta: 'Senha e acesso',
+};
+
+/** Uma seção de ajustes por página (aberta a partir da aba Mais). */
+export default function SettingsSection() {
+  const { section = '' } = useParams();
+  const navigate = useNavigate();
   const { settings, setSettings } = useAdmin();
-  const location = useLocation();
-
-  useEffect(() => {
-    if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView({ behavior: 'smooth' });
-  }, [location.hash]);
 
   async function save(patch: Partial<Settings>, msg = 'Salvo') {
     try {
@@ -32,29 +40,22 @@ export default function SettingsPage() {
     }
   }
 
+  const body = {
+    negocio: <Business settings={settings} save={save} />,
+    horarios: <Hours />,
+    folgas: <Exceptions />,
+    regras: <Rules settings={settings} save={save} />,
+    mensagens: <Messages settings={settings} save={save} />,
+    notificacoes: <Notifications settings={settings} save={save} />,
+    'clientes-despesas': <Others settings={settings} save={save} />,
+    conta: <Security />,
+  }[section];
+
   return (
-    <div className="settings">
-      <Business settings={settings} save={save} />
-      <Hours />
-      <Exceptions />
-      <Rules settings={settings} save={save} />
-      <Messages settings={settings} save={save} />
-      <Notifications settings={settings} save={save} />
-      <Others settings={settings} save={save} />
-      <Security />
+    <div className="page">
+      <PageHead title={TITLES[section] ?? 'Ajustes'} onBack={() => navigate('/admin/mais')} backLabel="Mais" />
+      {body ?? <Empty title="Página não encontrada" />}
     </div>
-  );
-}
-
-type SaveFn = (patch: Partial<Settings>, msg?: string) => Promise<boolean>;
-
-function Section({ id, icon, title, children, defaultOpen = false }: { id?: string; icon: Parameters<typeof Icon>[0]['name']; title: string; children: ReactNode; defaultOpen?: boolean }) {
-  const location = useLocation();
-  return (
-    <details className="set-section" id={id} open={defaultOpen || (!!id && location.hash === `#${id}`)}>
-      <summary><Icon name={icon} size={20} /> {title}</summary>
-      <div className="set-body">{children}</div>
-    </details>
   );
 }
 
@@ -62,36 +63,31 @@ function Section({ id, icon, title, children, defaultOpen = false }: { id?: stri
 
 function Business({ settings, save }: { settings: Settings; save: SaveFn }) {
   const [f, setF] = useState({
-    business_name: settings.business_name, address: settings.address, maps_url: settings.maps_url,
+    business_name: settings.business_name, owner_name: settings.owner_name, address: settings.address, maps_url: settings.maps_url,
     whatsapp: maskPhone(settings.whatsapp), instagram: settings.instagram,
   });
-  const site = location.origin;
   return (
-    <Section icon="sparkle" title="Seu negócio" defaultOpen>
-      <div className="share-box">
-        <p>Link da sua página de agendamento:</p>
-        <strong>{site.replace(/^https?:\/\//, '')}</strong>
-        <div className="row-buttons">
-          <button type="button" className="btn btn-outline btn-sm" onClick={() => navigator.clipboard?.writeText(site).then(() => toast('Link copiado'))}>
-            <Icon name="link" size={18} /> Copiar
-          </button>
-          <a className="btn btn-outline btn-sm" href="/" target="_blank" rel="noreferrer">Abrir</a>
-        </div>
+    <>
+      <p className="hint">Essas informações aparecem na sua página e nas mensagens para as clientes.</p>
+      <div className="two-cols">
+        <label className="field"><span>Nome do negócio</span><input value={f.business_name} onChange={(e) => setF({ ...f, business_name: e.target.value })} /></label>
+        <label className="field"><span>Seu nome</span><input value={f.owner_name} onChange={(e) => setF({ ...f, owner_name: e.target.value })} /></label>
       </div>
-      <label className="field"><span>Nome do negócio</span><input value={f.business_name} onChange={(e) => setF({ ...f, business_name: e.target.value })} /></label>
       <label className="field"><span>Endereço do atendimento</span><input value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} placeholder="Rua, número, bairro, cidade" /></label>
-      <label className="field"><span>Link do Google Maps (opcional)</span><input value={f.maps_url} onChange={(e) => setF({ ...f, maps_url: e.target.value })} placeholder="https://maps.app.goo.gl/…" /></label>
+      <label className="field"><span>Link do Google Maps <small>(opcional)</small></span><input value={f.maps_url} onChange={(e) => setF({ ...f, maps_url: e.target.value })} placeholder="https://maps.app.goo.gl/…" /></label>
       <div className="two-cols">
         <label className="field"><span>Seu WhatsApp</span><input value={f.whatsapp} inputMode="tel" onChange={(e) => setF({ ...f, whatsapp: maskPhone(e.target.value) })} /></label>
         <label className="field"><span>Instagram</span><input value={f.instagram} onChange={(e) => setF({ ...f, instagram: e.target.value })} placeholder="apnails.pp" /></label>
       </div>
-      <p className="hint">O endereço aparece no site (com mapa) e no lembrete enviado às clientes.</p>
-      <button type="button" className="btn btn-primary btn-block" onClick={() => save(f)}>Salvar</button>
-    </Section>
+      <button type="button" className="btn btn-primary btn-block btn-lg" onClick={() => save(f)}>Salvar</button>
+    </>
   );
 }
 
 // ------------------------------------------------------------ horários
+
+const DAY_NAMES = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
 function Hours() {
   const [rows, setRows] = useState<WeeklyHour[] | null>(null);
@@ -107,39 +103,40 @@ function Hours() {
   }
 
   return (
-    <Section icon="clock" title="Horários de atendimento">
-      <p className="hint">Sua semana padrão. Para um dia específico (folga, horário diferente), use “Folgas e exceções”.</p>
+    <>
+      <p className="hint">Sua semana padrão. Para mudar só um dia (folga, feriado, horário diferente), use Folgas e exceções.</p>
       {rows && (
-        <div className="hours">
+        <div className="surface" style={{ padding: '4px 16px', marginBottom: 18 }}>
           {DAY_ORDER.map((d) => {
             const r = rows.find((x) => x.weekday === d)!;
             return (
-              <div key={d} className={`hour-row${r.open ? '' : ' is-closed'}`}>
+              <div key={d} className={`hours-row${r.open ? '' : ' is-closed'}`}>
                 <label className="switch" aria-label={`${DAY_NAMES[d]} aberto`}>
                   <input type="checkbox" checked={r.open} onChange={(e) => set(d, { open: e.target.checked })} />
                   <span />
                 </label>
                 <strong>{DAY_NAMES[d]}</strong>
                 {r.open ? (
-                  <span className="hour-times">
+                  <span className="hours-times">
                     <input type="time" step={900} value={r.start_time} onChange={(e) => set(d, { start_time: e.target.value })} />
                     <span>às</span>
                     <input type="time" step={900} value={r.end_time} onChange={(e) => set(d, { end_time: e.target.value })} />
                   </span>
-                ) : <span className="hour-closed">Fechado</span>}
+                ) : <span className="hours-closed">Fechado</span>}
               </div>
             );
           })}
         </div>
       )}
-      <button type="button" className="btn btn-primary btn-block" onClick={save}>Salvar horários</button>
-    </Section>
+      <button type="button" className="btn btn-primary btn-block btn-lg" onClick={save}>Salvar horários</button>
+    </>
   );
 }
 
 // ------------------------------------------------------------ exceções
 
 const KIND_LABEL: Record<ExceptionKind, string> = { closed: 'Fechado', block: 'Horário bloqueado', special: 'Horário especial' };
+const KIND_ICON: Record<ExceptionKind, Parameters<typeof Icon>[0]['name']> = { closed: 'x', block: 'clock', special: 'sparkle' };
 
 function Exceptions() {
   const [list, setList] = useState<DateException[] | null>(null);
@@ -148,30 +145,33 @@ function Exceptions() {
   useEffect(() => { load(); }, []);
 
   async function remove(x: DateException) {
-    if (!(await confirmDialog('Remover esta exceção?', { ok: 'Remover', danger: true }))) return;
+    if (!(await confirmDialog('Remover esta exceção?', { text: 'O dia volta a seguir o horário padrão.', ok: 'Remover', danger: true }))) return;
     await api(`/api/admin/settings/exceptions/${x.id}`, { method: 'DELETE' });
     bumpData();
     load();
   }
 
   return (
-    <Section id="excecoes" icon="calendar" title="Folgas e exceções">
-      <p className="hint">Feche dias (folga, feriado, viagem), bloqueie um horário ou abra um horário diferente numa data específica.</p>
-      {list && list.length === 0 && <p className="hint"><em>Nenhuma exceção futura.</em></p>}
-      <ul className="exc-list">
-        {list?.map((x) => (
-          <li key={x.id}>
-            <div>
-              <strong>{x.date_from === x.date_to ? fmtDateBR(x.date_from) : `${fmtDateBR(x.date_from)} a ${fmtDateBR(x.date_to)}`}</strong>
-              <span>{KIND_LABEL[x.kind]}{x.start_time ? ` · ${x.start_time}–${x.end_time}` : ''}{x.reason ? ` · ${x.reason}` : ''}</span>
+    <>
+      <p className="hint">Feche dias (folga, feriado, viagem), bloqueie um trecho do dia ou abra um horário diferente numa data.</p>
+      {list && list.length === 0 && <Empty icon="calendar" title="Nenhuma exceção" text="Sua agenda segue o horário padrão." />}
+      {list && list.length > 0 && (
+        <div className="rows" style={{ marginBottom: 18 }}>
+          {list.map((x) => (
+            <div key={x.id} className="row-item">
+              <span className="menu-icon"><Icon name={KIND_ICON[x.kind]} size={18} /></span>
+              <span className="grow">
+                <span className="row-title num">{x.date_from === x.date_to ? fmtDateBR(x.date_from) : `${fmtDateBR(x.date_from)} a ${fmtDateBR(x.date_to)}`}</span>
+                <small>{KIND_LABEL[x.kind]}{x.start_time ? ` · ${x.start_time}–${x.end_time}` : ''}{x.reason ? ` · ${x.reason}` : ''}</small>
+              </span>
+              <button type="button" className="icon-btn" onClick={() => remove(x)} aria-label="Remover"><Icon name="trash" size={18} /></button>
             </div>
-            <button type="button" className="icon-btn sm" onClick={() => remove(x)} aria-label="Remover"><Icon name="trash" size={18} /></button>
-          </li>
-        ))}
-      </ul>
-      <button type="button" className="btn btn-outline btn-block" onClick={() => setAdding(true)}><Icon name="plus" size={18} /> Adicionar</button>
+          ))}
+        </div>
+      )}
+      <button type="button" className="btn btn-primary btn-block btn-lg" onClick={() => setAdding(true)}><Icon name="plus" size={20} /> Adicionar exceção</button>
       {adding && <ExceptionForm onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} />}
-    </Section>
+    </>
   );
 }
 
@@ -190,22 +190,19 @@ function ExceptionForm({ onClose, onSaved }: { onClose: () => void; onSaved: () 
         body: { kind, date_from: from, date_to: kind === 'closed' ? to : from, start_time: start, end_time: end, reason },
       });
       bumpData();
-      if (r.affected > 0 && kind !== 'special') {
-        toast(`Atenção: já existem ${r.affected} agendamento(s) nesse período. Avise as clientes.`, 'error');
-      } else toast('Exceção salva');
+      if (r.affected > 0 && kind !== 'special') toast(`Atenção: há ${r.affected} agendamento(s) nesse período. Avise as clientes.`, 'error');
+      else toast('Exceção salva');
       onSaved();
     } catch (e) { toast(errorMessage(e), 'error'); }
   }
 
   return (
-    <Sheet title="Nova exceção" onClose={onClose} footer={<button type="button" className="btn btn-primary btn-block" onClick={save}>Salvar</button>}>
-      <div className="seg vertical">
-        <button type="button" className={kind === 'closed' ? 'is-active' : ''} onClick={() => setKind('closed')}>Fechar dia(s) inteiro(s)</button>
-        <button type="button" className={kind === 'block' ? 'is-active' : ''} onClick={() => setKind('block')}>Bloquear um horário</button>
-        <button type="button" className={kind === 'special' ? 'is-active' : ''} onClick={() => setKind('special')}>Horário especial no dia</button>
-      </div>
-      <div className="two-cols">
-        <label className="field"><span>{kind === 'closed' ? 'De' : 'Data'}</span><input type="date" value={from} onChange={(e) => { setFrom(e.target.value); if (e.target.value > to) setTo(e.target.value); }} /></label>
+    <Sheet title="Nova exceção" onClose={onClose} footer={<button type="button" className="btn btn-primary btn-block btn-lg" onClick={save}>Salvar</button>}>
+      <label className="radio-card"><input type="radio" checked={kind === 'closed'} onChange={() => setKind('closed')} /><span><strong>Fechar dia(s)</strong><small>Folga, feriado, viagem</small></span></label>
+      <label className="radio-card"><input type="radio" checked={kind === 'block'} onChange={() => setKind('block')} /><span><strong>Bloquear um horário</strong><small>Um compromisso em parte do dia</small></span></label>
+      <label className="radio-card"><input type="radio" checked={kind === 'special'} onChange={() => setKind('special')} /><span><strong>Horário especial</strong><small>Abrir um dia fechado ou mudar o horário só nessa data</small></span></label>
+      <div className="two-cols" style={{ marginTop: 10 }}>
+        <label className="field"><span>{kind === 'closed' ? 'De' : 'Dia'}</span><input type="date" value={from} onChange={(e) => { setFrom(e.target.value); if (e.target.value > to) setTo(e.target.value); }} /></label>
         {kind === 'closed' && <label className="field"><span>Até</span><input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} /></label>}
       </div>
       {kind !== 'closed' && (
@@ -214,8 +211,7 @@ function ExceptionForm({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           <label className="field"><span>{kind === 'special' ? 'Fecha às' : 'Até'}</span><input type="time" step={900} value={end} onChange={(e) => setEnd(e.target.value)} /></label>
         </div>
       )}
-      {kind === 'special' && <p className="hint">Nesse dia vale este horário no lugar do horário padrão (serve também para abrir um dia que normalmente é fechado).</p>}
-      <label className="field"><span>Motivo (opcional, só você vê)</span><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex.: feriado, curso, médico" /></label>
+      <label className="field"><span>Motivo <small>(só você vê)</small></span><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex.: feriado, curso, médico" /></label>
     </Sheet>
   );
 }
@@ -231,12 +227,12 @@ function Rules({ settings, save }: { settings: Settings; save: SaveFn }) {
     min_advance_min: settings.min_advance_min, window_days: settings.window_days,
   });
   return (
-    <Section icon="settings" title="Regras de agendamento">
+    <>
       <div className="field">
         <span>Como oferecer os horários no site</span>
         <label className="radio-card">
           <input type="radio" checked={f.booking_mode === 'blocks'} onChange={() => setF({ ...f, booking_mode: 'blocks' })} />
-          <span><strong>Em blocos (recomendado)</strong><small>Um atendimento logo após o outro, sem sobrar buracos na agenda.</small></span>
+          <span><strong>Em blocos <small>· recomendado</small></strong><small>Um atendimento logo após o outro, sem buracos na agenda.</small></span>
         </label>
         <label className="radio-card">
           <input type="radio" checked={f.booking_mode === 'free'} onChange={() => setF({ ...f, booking_mode: 'free' })} />
@@ -260,13 +256,13 @@ function Rules({ settings, save }: { settings: Settings; save: SaveFn }) {
           {ADVANCE.map((m) => <option key={m} value={m}>{advLabel(m)}</option>)}
         </select>
       </label>
-      <label className="field"><span>Até quantos dias à frente as clientes podem agendar</span>
+      <label className="field"><span>Até quantos dias à frente</span>
         <select value={f.window_days} onChange={(e) => setF({ ...f, window_days: Number(e.target.value) })}>
           {[15, 30, 45, 60, 90].map((d) => <option key={d} value={d}>{d} dias</option>)}
         </select>
       </label>
-      <button type="button" className="btn btn-primary btn-block" onClick={() => save(f, 'Regras salvas')}>Salvar regras</button>
-    </Section>
+      <button type="button" className="btn btn-primary btn-block btn-lg" onClick={() => save(f, 'Regras salvas')}>Salvar</button>
+    </>
   );
 }
 
@@ -275,13 +271,13 @@ function Rules({ settings, save }: { settings: Settings; save: SaveFn }) {
 function Messages({ settings, save }: { settings: Settings; save: SaveFn }) {
   const { today } = useAdmin();
   const [f, setF] = useState({ tpl_confirm: settings.tpl_confirm, tpl_reminder: settings.tpl_reminder, tpl_reschedule: settings.tpl_reschedule });
+  const [tab, setTab] = useState<keyof typeof f>('tpl_confirm');
   const [preview, setPreview] = useState<string | null>(null);
-  const refs = { tpl_confirm: useRef<HTMLTextAreaElement>(null), tpl_reminder: useRef<HTMLTextAreaElement>(null), tpl_reschedule: useRef<HTMLTextAreaElement>(null) };
+  const ref = useRef<HTMLTextAreaElement>(null);
 
-  const insert = (k: keyof typeof f, v: string) => {
-    const el = refs[k].current;
-    const pos = el?.selectionStart ?? f[k].length;
-    setF({ ...f, [k]: `${f[k].slice(0, pos)}{${v}}${f[k].slice(pos)}` });
+  const insert = (v: string) => {
+    const pos = ref.current?.selectionStart ?? f[tab].length;
+    setF({ ...f, [tab]: `${f[tab].slice(0, pos)}{${v}}${f[tab].slice(pos)}` });
   };
 
   const sample = {
@@ -290,35 +286,36 @@ function Messages({ settings, save }: { settings: Settings; save: SaveFn }) {
     notes: '', confirmation_sent_at: null, confirmed_at: null, alert_sent_at: null, reminder_sent_at: null, completed_at: null,
     cancelled_at: null, expired_at: null, payment_method: null, created_at: '',
   };
-  const showPreview = (k: keyof typeof f) => {
-    const url = whatsappFor(k === 'tpl_confirm' ? 'confirm' : k === 'tpl_reminder' ? 'reminder' : 'reschedule', sample, { ...settings, ...f }, today);
+  const showPreview = () => {
+    const url = whatsappFor(tab === 'tpl_confirm' ? 'confirm' : tab === 'tpl_reminder' ? 'reminder' : 'reschedule', sample, { ...settings, ...f }, today);
     setPreview(decodeURIComponent(url.split('?text=')[1] ?? ''));
   };
 
-  const block = (k: keyof typeof f, label: string) => (
-    <div className="field">
-      <span>{label}</span>
-      <textarea ref={refs[k]} rows={8} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
-      <div className="chip-row vars">
-        {TEMPLATE_VARS.map((v) => <button key={v.key} type="button" className="chip chip-sm" title={v.hint} onClick={() => insert(k, v.key)}>{`{${v.key}}`}</button>)}
-      </div>
-      <button type="button" className="link-btn" onClick={() => showPreview(k)}>Ver como fica</button>
-    </div>
-  );
-
   return (
-    <Section icon="whatsapp" title="Mensagens do WhatsApp">
-      <p className="hint">Toque numa variável para inseri-la. Ela é trocada pelos dados da cliente na hora de enviar.</p>
-      {block('tpl_confirm', 'Confirmação de agendamento')}
-      {block('tpl_reminder', 'Lembrete')}
-      {block('tpl_reschedule', 'Aviso de remarcação')}
-      <button type="button" className="btn btn-primary btn-block" onClick={() => save(f, 'Mensagens salvas')}>Salvar mensagens</button>
+    <>
+      <div className="seg">
+        <button type="button" className={tab === 'tpl_confirm' ? 'is-active' : ''} onClick={() => setTab('tpl_confirm')}>Confirmação</button>
+        <button type="button" className={tab === 'tpl_reminder' ? 'is-active' : ''} onClick={() => setTab('tpl_reminder')}>Lembrete</button>
+        <button type="button" className={tab === 'tpl_reschedule' ? 'is-active' : ''} onClick={() => setTab('tpl_reschedule')}>Remarcação</button>
+      </div>
+      <label className="field">
+        <span>Texto da mensagem</span>
+        <textarea ref={ref} rows={10} value={f[tab]} onChange={(e) => setF({ ...f, [tab]: e.target.value })} />
+      </label>
+      <p className="hint" style={{ marginTop: -6 }}>Toque para inserir os dados da cliente:</p>
+      <div className="chips vars">
+        {TEMPLATE_VARS.map((v) => <button key={v.key} type="button" className="chip chip-sm" title={v.hint} onClick={() => insert(v.key)}>{`{${v.key}}`}</button>)}
+      </div>
+      <div className="two-cols" style={{ marginTop: 22 }}>
+        <button type="button" className="btn btn-outline" onClick={showPreview}>Ver como fica</button>
+        <button type="button" className="btn btn-primary" onClick={() => save(f, 'Mensagens salvas')}>Salvar</button>
+      </div>
       {preview !== null && (
-        <Sheet title="Prévia da mensagem" onClose={() => setPreview(null)}>
+        <Sheet title="Prévia" onClose={() => setPreview(null)}>
           <div className="wa-preview"><p>{preview}</p></div>
         </Sheet>
       )}
-    </Section>
+    </>
   );
 }
 
@@ -334,74 +331,81 @@ function Notifications({ settings, save }: { settings: Settings; save: SaveFn })
       const s = await enablePush();
       setState(s);
       if (s === 'on') toast('Notificações ativadas');
-      if (s === 'denied') toast('Permissão negada. Libere nas configurações do navegador.', 'error');
+      if (s === 'denied') toast('Permissão negada. Libere nas configurações do Chrome.', 'error');
       if (s === 'no-key') toast('Notificações ainda não configuradas no servidor (NUKKI).', 'error');
     } catch (e) { toast(errorMessage(e), 'error'); }
   }
 
+  const status: Record<PushState, string> = {
+    on: 'Ativas neste celular. Você é avisada a cada novo agendamento, confirmação pendente e horário liberado.',
+    off: 'Ative para saber na hora quando uma cliente agendar.',
+    denied: 'Bloqueadas. Libere em Configurações do Chrome → Notificações.',
+    unsupported: 'Este navegador não suporta notificações. No Android, use o Chrome e instale o app na tela inicial.',
+    'no-key': 'Ainda não configuradas no servidor.',
+  };
+
   return (
-    <Section id="notificacoes" icon="bell" title="Notificações e lembretes">
-      <div className="push-status">
-        {state === 'on' && <p><Icon name="check" size={18} /> Notificações ativas neste celular.</p>}
-        {state === 'off' && <p>Ative para ser avisada a cada novo agendamento, confirmação pendente e horário liberado.</p>}
-        {state === 'denied' && <p>As notificações estão bloqueadas. Libere em Configurações do Chrome → Notificações.</p>}
-        {state === 'unsupported' && <p>Este navegador não suporta notificações. No Android, use o Chrome e instale o app na tela inicial.</p>}
-        {state === 'no-key' && <p>Notificações ainda não configuradas no servidor.</p>}
-        {state !== 'on' && state !== 'unsupported' && <button type="button" className="btn btn-primary btn-block" onClick={enable}>Ativar notificações</button>}
+    <>
+      <div className="surface" style={{ padding: 16 }}>
+        <div className="row-item" style={{ padding: 0 }}>
+          <span className="menu-icon"><Icon name="bell" size={19} /></span>
+          <span className="grow"><span className="row-title">Notificações</span><small>{state ? status[state] : '…'}</small></span>
+        </div>
+        {state && state !== 'on' && state !== 'unsupported' && <button type="button" className="btn btn-primary btn-block" style={{ marginTop: 14 }} onClick={enable}>Ativar notificações</button>}
         {state === 'on' && (
-          <button type="button" className="btn btn-outline btn-block" onClick={() => api<{ sent: number }>('/api/admin/settings/push/test', { body: {} }).then((r) => toast(r.sent ? 'Notificação de teste enviada' : 'Nenhum aparelho recebeu', r.sent ? 'ok' : 'error'))}>
-            Enviar notificação de teste
+          <button type="button" className="btn btn-soft btn-block" style={{ marginTop: 14 }}
+            onClick={() => api<{ sent: number }>('/api/admin/settings/push/test', { body: {} }).then((r) => toast(r.sent ? 'Notificação de teste enviada' : 'Nenhum aparelho recebeu', r.sent ? 'ok' : 'error'))}>
+            Enviar um teste
           </button>
         )}
       </div>
-      <div className="field">
+
+      <div className="field" style={{ marginTop: 24 }}>
         <span>Quando lembrar as clientes</span>
-        <div className="seg">
+        <div className="seg" style={{ margin: 0 }}>
           <button type="button" className={f.reminder_when === 'same_day' ? 'is-active' : ''} onClick={() => setF({ ...f, reminder_when: 'same_day' })}>No dia</button>
           <button type="button" className={f.reminder_when === 'day_before' ? 'is-active' : ''} onClick={() => setF({ ...f, reminder_when: 'day_before' })}>Na véspera</button>
         </div>
       </div>
-      <label className="field"><span>Horário do aviso “lembretes para enviar”</span>
+      <label className="field"><span>Avisar você dos lembretes às</span>
         <input type="time" step={900} value={f.reminder_notice_time} onChange={(e) => setF({ ...f, reminder_notice_time: e.target.value })} />
       </label>
-      <button type="button" className="btn btn-primary btn-block" onClick={() => save(f, 'Lembretes salvos')}>Salvar</button>
-    </Section>
+      <button type="button" className="btn btn-primary btn-block btn-lg" onClick={() => save(f, 'Lembretes salvos')}>Salvar</button>
+    </>
   );
 }
 
-// ------------------------------------------------------------ outros
+// ------------------------------------------------------------ clientes e despesas
 
 function Others({ settings, save }: { settings: Settings; save: SaveFn }) {
   const [days, setDays] = useState(settings.missing_after_days);
   const [cats, setCats] = useState(settings.expense_categories);
   const [newCat, setNewCat] = useState('');
   return (
-    <Section icon="users" title="Clientes e despesas">
-      <label className="field"><span>Considerar “sumida” depois de</span>
+    <>
+      <label className="field"><span>Considerar cliente “sumida” depois de</span>
         <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
           {[30, 45, 60, 90].map((d) => <option key={d} value={d}>{d} dias sem vir</option>)}
         </select>
       </label>
       <div className="field">
         <span>Categorias de despesas</span>
-        <div className="chip-row">
+        <div className="chips">
           {cats.map((c) => (
-            <span key={c} className="chip chip-removable">{c}
-              <button type="button" aria-label={`Remover ${c}`} onClick={() => setCats(cats.filter((x) => x !== c))}>×</button>
-            </span>
+            <span key={c} className="chip">{c}<button type="button" className="chip-x" aria-label={`Remover ${c}`} onClick={() => setCats(cats.filter((x) => x !== c))}>×</button></span>
           ))}
         </div>
         <div className="inline-add">
           <input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="Nova categoria" />
-          <button type="button" className="btn btn-outline btn-sm" onClick={() => { if (newCat.trim()) { setCats([...cats, newCat.trim()]); setNewCat(''); } }}>Adicionar</button>
+          <button type="button" className="btn btn-soft btn-sm" onClick={() => { if (newCat.trim()) { setCats([...cats, newCat.trim()]); setNewCat(''); } }}>Adicionar</button>
         </div>
       </div>
-      <button type="button" className="btn btn-primary btn-block" onClick={() => save({ missing_after_days: days, expense_categories: cats })}>Salvar</button>
-    </Section>
+      <button type="button" className="btn btn-primary btn-block btn-lg" onClick={() => save({ missing_after_days: days, expense_categories: cats })}>Salvar</button>
+    </>
   );
 }
 
-// ------------------------------------------------------------ segurança
+// ------------------------------------------------------------ conta
 
 function Security() {
   const [current, setCurrent] = useState('');
@@ -416,16 +420,17 @@ function Security() {
   }
 
   async function logout() {
+    if (!(await confirmDialog('Sair deste celular?', { text: 'Você vai precisar da senha para entrar de novo.', ok: 'Sair' }))) return;
     await api('/api/admin/logout', { body: {} }).catch(() => {});
     location.href = '/admin';
   }
 
   return (
-    <Section icon="logout" title="Segurança">
+    <>
       <label className="field"><span>Senha atual</span><input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" /></label>
-      <label className="field"><span>Nova senha (mín. 6 caracteres)</span><input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" /></label>
-      <button type="button" className="btn btn-primary btn-block" disabled={!current || next.length < 6} onClick={change}>Trocar senha</button>
-      <button type="button" className="btn btn-ghost btn-block" onClick={logout}><Icon name="logout" size={18} /> Sair deste celular</button>
-    </Section>
+      <label className="field"><span>Nova senha <small>(mínimo 6 caracteres)</small></span><input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" /></label>
+      <button type="button" className="btn btn-primary btn-block btn-lg" disabled={!current || next.length < 6} onClick={change}>Trocar senha</button>
+      <button type="button" className="btn btn-ghost btn-block" style={{ marginTop: 24 }} onClick={logout}><Icon name="logout" size={18} /> Sair deste celular</button>
+    </>
   );
 }

@@ -60,6 +60,11 @@ export interface Appointment {
   created_at: string;
 }
 
+/** Detalhe de um agendamento com o contexto da cliente. */
+export interface AppointmentDetail extends Appointment {
+  client: { visits: number; total_cents: number; last_visit: string | null; notes: string };
+}
+
 export interface Client {
   id: number;
   name: string;

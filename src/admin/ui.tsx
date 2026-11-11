@@ -30,6 +30,15 @@ const paths: Record<string, ReactNode> = {
   alert: <><path d="M12 3l9.5 17h-19L12 3z" /><path d="M12 10v4M12 17.2v.1" /></>,
   undo: <><path d="M9 14L4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 0 12h-2" /></>,
   money: <><rect x="2.5" y="6" width="19" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /><path d="M6 9.5v5M18 9.5v5" /></>,
+  dots: <><circle cx="5" cy="12" r="1.3" /><circle cx="12" cy="12" r="1.3" /><circle cx="19" cy="12" r="1.3" /></>,
+  pencil: <><path d="M4 20h4L19 9l-4-4L4 16v4z" /></>,
+  pix: <><path d="M12 3l3.5 3.5L12 10 8.5 6.5 12 3zM12 14l3.5 3.5L12 21l-3.5-3.5L12 14zM3 12l3.5-3.5L10 12l-3.5 3.5L3 12zM14 12l3.5-3.5L21 12l-3.5 3.5L14 12z" /></>,
+  card: <><rect x="2.5" y="5" width="19" height="14" rx="2.5" /><path d="M2.5 10h19M6.5 15h4" /></>,
+  contactless: <><path d="M8.5 8.5a5 5 0 0 1 0 7M12 6a8.5 8.5 0 0 1 0 12M15.5 3.5a12 12 0 0 1 0 17" /></>,
+  message: <><path d="M4 5h16v11H9l-5 4V5z" /></>,
+  shield: <><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6l8-3z" /></>,
+  external: <><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></>,
+  scissors: <><circle cx="6" cy="7" r="2.5" /><circle cx="6" cy="17" r="2.5" /><path d="M8 8.5L20 18M8 15.5L20 6" /></>,
 };
 
 export function Icon({ name, size = 22, className }: { name: keyof typeof paths | 'whatsapp'; size?: number; className?: string }) {
@@ -113,7 +122,8 @@ export function GlobalLayers() {
 // ------------------------------------------------------------------ sheet (painel que sobe de baixo)
 
 export function Sheet({ title, onClose, children, footer, wide }: {
-  title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean;
+  /** Sem título, o conteúdo traz o próprio cabeçalho (fecha tocando fora ou no botão voltar). */
+  title?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -125,10 +135,12 @@ export function Sheet({ title, onClose, children, footer, wide }: {
     <div className="sheet-backdrop" onClick={onClose}>
       <section className={`sheet${wide ? ' sheet-wide' : ''}`} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-handle" aria-hidden="true" />
-        <header className="sheet-head">
-          <h2>{title}</h2>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Fechar"><Icon name="x" /></button>
-        </header>
+        {title !== undefined && (
+          <header className="sheet-head">
+            <h2>{title}</h2>
+            <button type="button" className="icon-btn" onClick={onClose} aria-label="Fechar"><Icon name="x" /></button>
+          </header>
+        )}
         <div className="sheet-body">{children}</div>
         {footer && <footer className="sheet-foot">{footer}</footer>}
       </section>
@@ -140,7 +152,48 @@ export function Sheet({ title, onClose, children, footer, wide }: {
 // ------------------------------------------------------------------ pequenos componentes
 
 export function StatusBadge({ status }: { status: Status }) {
-  return <span className={`badge badge-${status}`}>{STATUS_LABEL[status]}</span>;
+  return <span className={`pill pill-${status}`}>{STATUS_LABEL[status]}</span>;
+}
+
+/** Valor em reais: "R$" menor e discreto; centavos só quando existem (ou sempre, com cents). */
+export function Money({ cents, showCents = false, className = '' }: { cents: number; showCents?: boolean; className?: string }) {
+  const neg = cents < 0;
+  const abs = Math.abs(Math.round(cents));
+  const reais = Math.floor(abs / 100).toLocaleString('pt-BR');
+  const c = abs % 100;
+  return (
+    <span className={`money${neg ? ' neg' : ''}${className ? ` ${className}` : ''}`} aria-label={`${neg ? 'menos ' : ''}R$ ${reais},${String(c).padStart(2, '0')}`}>
+      {neg && '−'}<span className="cur">R$</span>{reais}
+      {(showCents || c !== 0) && <span className="cents">,{String(c).padStart(2, '0')}</span>}
+    </span>
+  );
+}
+
+export const initials = (n: string) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join('');
+
+export function Avatar({ name, size }: { name: string; size?: 'lg' }) {
+  return <span className={`avatar${size ? ` ${size}` : ''}`} aria-hidden="true">{initials(name)}</span>;
+}
+
+export function PageHead({ eyebrow, title, onBack, backLabel = 'Voltar', right }: {
+  eyebrow?: ReactNode; title: ReactNode; onBack?: () => void; backLabel?: string; right?: ReactNode;
+}) {
+  return (
+    <>
+      {onBack && <button type="button" className="back-btn" onClick={onBack}><Icon name="left" size={20} /> {backLabel}</button>}
+      <header className="page-head">
+        <div>
+          {eyebrow && <div className="eyebrow">{eyebrow}</div>}
+          <h1 className="display">{title}</h1>
+        </div>
+        {right}
+      </header>
+    </>
+  );
+}
+
+export function SecHead({ title, action }: { title: string; action?: ReactNode }) {
+  return <div className="sec-head"><h3>{title}</h3>{action}</div>;
 }
 
 export function Empty({ icon = 'sparkle', title, text, action }: { icon?: Parameters<typeof Icon>[0]['name']; title: string; text?: string; action?: ReactNode }) {

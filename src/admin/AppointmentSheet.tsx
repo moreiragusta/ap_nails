@@ -1,35 +1,45 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { fmtMoney, fmtPhone } from '../../shared/format';
-import { localToUtcMs } from '../../shared/time';
-import { PAYMENT_LABEL, type Appointment, type PaymentMethod } from '../../shared/types';
+import { fmtDateBR, fmtDayMonth, fmtDuration, fmtPhone, weekdayName } from '../../shared/format';
+import { addDays, localToUtcMs } from '../../shared/time';
+import { PAYMENT_LABEL, type AppointmentDetail, type PaymentMethod } from '../../shared/types';
 import { api, errorMessage } from '../lib/api';
-import { useApptActions } from './actions';
+import { waLink } from '../lib/phone';
+import { useApptActions, useReminderDate } from './actions';
+import { hasStarted } from './ApptCard';
 import AppointmentForm from './AppointmentForm';
-import { fullDate } from './context';
-import { bumpData, confirmDialog, Icon, Loading, Sheet, StatusBadge, toast, useDataVersion } from './ui';
-
-const when = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : null;
+import { useAdmin } from './context';
+import { Avatar, bumpData, confirmDialog, Icon, Loading, Money, Sheet, StatusBadge, toast, useDataVersion } from './ui';
 
 const H = 3600_000;
+const hhmm = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
+const shortWhen = (iso: string | null, today: string) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const local = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return local === today ? hhmm(iso) : `${fmtDayMonth(local)} ${hhmm(iso)}`;
+};
 
-/** Detalhes de um agendamento com todas as ações. */
+const PAY_ICON: Record<PaymentMethod, Parameters<typeof Icon>[0]['name']> = { pix: 'pix', cash: 'money', debit: 'card', credit: 'contactless' };
+
+/** Detalhe do atendimento: quem, quando, em que ponto está e a próxima ação. */
 export default function AppointmentSheet({ id, initialMode, onClose }: { id: number; initialMode: 'view' | 'complete'; onClose: () => void }) {
-  const [a, setA] = useState<Appointment | null>(null);
-  const [mode, setMode] = useState<'view' | 'complete' | 'edit'>(initialMode);
-  const [notes, setNotes] = useState('');
+  const { today } = useAdmin();
+  const [a, setA] = useState<AppointmentDetail | null>(null);
+  const [mode, setMode] = useState<'view' | 'complete' | 'edit' | 'note'>(initialMode);
+  const [note, setNote] = useState('');
   const version = useDataVersion();
   const act = useApptActions();
+  const reminderDate = useReminderDate();
   const navigate = useNavigate();
 
   useEffect(() => {
-    api<Appointment>(`/api/admin/appointments/${id}`)
-      .then((r) => { setA(r); setNotes(r.notes); })
+    api<AppointmentDetail>(`/api/admin/appointments/${id}`)
+      .then((r) => { setA(r); setNote(r.client.notes); })
       .catch((e) => { toast(errorMessage(e), 'error'); onClose(); });
   }, [id, version]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!a) return <Sheet title="Agendamento" onClose={onClose}><Loading /></Sheet>;
+  if (!a) return <Sheet onClose={onClose}><Loading /></Sheet>;
 
   if (mode === 'edit') {
     return (
@@ -39,8 +49,8 @@ export default function AppointmentSheet({ id, initialMode, onClose }: { id: num
         onSaved={(updated, moved) => {
           setMode('view');
           if (moved) {
-            toast('Agendamento remarcado');
-            confirmDialog('Avisar a cliente?', { text: 'Abrir o WhatsApp com a nova data e horário?', ok: 'Abrir WhatsApp' })
+            toast('Horário remarcado');
+            confirmDialog('Avisar a cliente?', { text: 'Abrir o WhatsApp com o novo dia e horário?', ok: 'Abrir WhatsApp' })
               .then((ok) => { if (ok) act.sendReschedule(updated); });
           }
         }}
@@ -48,28 +58,18 @@ export default function AppointmentSheet({ id, initialMode, onClose }: { id: num
     );
   }
 
-  async function saveNotes() {
-    if (!a || notes === a.notes) return;
-    try {
-      await api(`/api/admin/appointments/${a.id}`, { method: 'PATCH', body: { notes } });
-      bumpData();
-      toast('Observação salva');
-    } catch (e) { toast(errorMessage(e), 'error'); }
-  }
-
   if (mode === 'complete') {
     const pay = async (m: PaymentMethod) => { if (await act.complete(a, m)) onClose(); };
     return (
-      <Sheet title="Concluir atendimento" onClose={onClose}>
-        <div className="complete-head">
-          <p className="complete-name">{a.client_name}</p>
-          <p>{a.service_name}</p>
-          <p className="complete-value">{fmtMoney(a.price_cents)}</p>
+      <Sheet title="Registrar pagamento" onClose={onClose}>
+        <div className="pay-head">
+          <p className="eyebrow">{a.client_name} · {a.service_name}</p>
+          <Money cents={a.price_cents} showCents />
         </div>
-        <p className="section-label">Como a cliente pagou?</p>
         <div className="pay-grid">
           {(Object.keys(PAYMENT_LABEL) as PaymentMethod[]).map((m) => (
             <button key={m} type="button" className={`pay-btn${a.payment_method === m ? ' is-selected' : ''}`} onClick={() => pay(m)}>
+              <Icon name={PAY_ICON[m]} size={24} />
               {PAYMENT_LABEL[m]}
             </button>
           ))}
@@ -79,119 +79,143 @@ export default function AppointmentSheet({ id, initialMode, onClose }: { id: num
     );
   }
 
-  // Prazo de expiração (48h após o envio), exceto quando o atendimento é antes disso.
-  let expiryNote: string | null = null;
+  async function saveNote() {
+    if (!a) return;
+    try {
+      await api(`/api/admin/clients/${a.client_id}`, { method: 'PUT', body: { name: a.client_name, phone: a.client_phone, notes: note } });
+      bumpData();
+      setMode('view');
+      toast('Observação salva na ficha da cliente');
+    } catch (e) { toast(errorMessage(e), 'error'); }
+  }
+
+  if (mode === 'note') {
+    return (
+      <Sheet title="Observações da cliente" onClose={() => setMode('view')}
+        footer={<button type="button" className="btn btn-primary btn-block" onClick={saveNote}>Salvar</button>}>
+        <p className="hint">Ficam na ficha de {a.client_name.split(' ')[0]} e aparecem em todos os atendimentos dela.</p>
+        <label className="field">
+          <span>Preferências, alergias, cuidados</span>
+          <textarea rows={5} value={note} onChange={(e) => setNote(e.target.value)} autoFocus placeholder="Ex.: prefere tons nude; unhas sensíveis" />
+        </label>
+      </Sheet>
+    );
+  }
+
+  // ---------------------------------------------------------------- visualização
+  const started = hasStarted(a, today);
+  const isOpen = a.status === 'pending' || a.status === 'confirmed';
+  const visitN = a.client.visits + (a.status === 'done' ? 0 : 1);
+  const dayLabel = a.date === today ? 'Hoje' : a.date === addDays(today, 1) ? 'Amanhã' : a.date === addDays(today, -1) ? 'Ontem' : fmtDateBR(a.date);
+
+  // Linha de progresso
+  const viaSite = a.source === 'site';
+  const steps = [
+    { label: 'Agendou', sub: viaSite ? 'pelo site' : 'no painel', state: 'done' },
+    {
+      label: 'Confirmação',
+      sub: !viaSite ? 'não precisa' : a.confirmation_sent_at ? `enviada ${shortWhen(a.confirmation_sent_at, today)}` : 'enviar',
+      state: !viaSite || a.confirmation_sent_at ? 'done' : 'cur',
+    },
+    {
+      label: 'Confirmou',
+      sub: a.confirmed_at ? shortWhen(a.confirmed_at, today) : 'aguardando',
+      state: a.confirmed_at ? 'done' : a.status === 'pending' && a.confirmation_sent_at ? 'cur' : '',
+    },
+    {
+      label: a.status === 'cancelled' ? 'Cancelado' : a.status === 'expired' ? 'Expirou' : 'Atendimento',
+      sub: a.status === 'done' ? (a.payment_method ? PAYMENT_LABEL[a.payment_method] : 'concluído') : a.status === 'cancelled' || a.status === 'expired' ? '' : a.start_time,
+      state: a.status === 'done' ? 'done' : a.status === 'confirmed' ? 'cur' : a.status === 'cancelled' || a.status === 'expired' ? 'stop' : '',
+    },
+  ];
+
+  // Prazo de expiração
+  let callout: string | null = null;
   if (a.status === 'pending' && a.confirmation_sent_at) {
     const deadline = Date.parse(a.confirmation_sent_at) + 48 * H;
     const startsAt = localToUtcMs(a.date, a.start_time, 'America/Sao_Paulo');
-    if (startsAt <= deadline) expiryNote = 'O atendimento é antes do prazo de 48h: não expira sozinho. Decida se mantém ou cancela.';
-    else {
-      const left = Math.max(0, Math.round((deadline - Date.now()) / H));
-      expiryNote = `Se a cliente não confirmar, o horário é liberado em ${left}h.`;
-    }
-  } else if (a.status === 'pending') {
-    expiryNote = 'Envie a confirmação pelo WhatsApp. O prazo de 48h começa a contar a partir do envio.';
+    callout = startsAt <= deadline
+      ? 'O atendimento é antes do prazo de 48h, então não expira sozinho. Decida se mantém ou cancela.'
+      : `Se ela não responder, o horário é liberado em ${Math.max(0, Math.round((deadline - Date.now()) / H))}h.`;
   }
 
-  const rows: [string, string | null][] = [
-    ['Serviço', a.service_name],
-    ['Data', fullDate(a.date)],
-    ['Horário', `${a.start_time} às ${a.end_time}`],
-    ['Valor', fmtMoney(a.price_cents)],
-    ['WhatsApp', fmtPhone(a.client_phone)],
-    ['Origem', a.source === 'site' ? 'Agendado pelo site' : 'Lançado no painel'],
-    ['Agendado em', when(a.created_at)],
-    ['Confirmação enviada', when(a.confirmation_sent_at)],
-    ['Confirmado em', when(a.confirmed_at)],
-    ['Lembrete enviado', when(a.reminder_sent_at)],
-    ['Concluído em', when(a.completed_at)],
-    ['Pagamento', a.payment_method ? PAYMENT_LABEL[a.payment_method] : null],
-    ['Cancelado em', when(a.cancelled_at)],
-    ['Expirou em', when(a.expired_at)],
-  ];
+  // Ação principal
+  const reminderDue = a.status === 'confirmed' && a.date === reminderDate && !a.reminder_sent_at && !started;
+  let primary: React.ReactNode = null;
+  if (a.status === 'pending' && !a.confirmation_sent_at) {
+    primary = <button type="button" className="btn btn-primary btn-block btn-lg" onClick={() => act.sendConfirmation(a)}><Icon name="whatsapp" size={20} className="wa-glyph" /> Enviar confirmação</button>;
+  } else if (a.status === 'pending') {
+    primary = <button type="button" className="btn btn-primary btn-block btn-lg" onClick={() => act.confirm(a)}><Icon name="check" size={20} /> Ela confirmou</button>;
+  } else if (reminderDue) {
+    primary = <button type="button" className="btn btn-primary btn-block btn-lg" onClick={() => act.sendReminder(a)}><Icon name="whatsapp" size={20} className="wa-glyph" /> Enviar lembrete</button>;
+  } else if (a.status === 'confirmed') {
+    primary = <button type="button" className="btn btn-primary btn-block btn-lg" onClick={() => setMode('complete')}>Concluir e registrar pagamento</button>;
+  } else if (a.status === 'done') {
+    primary = <div className="paid"><Icon name="check" size={18} /> Pago{a.payment_method ? ` no ${PAYMENT_LABEL[a.payment_method]}` : ''}</div>;
+  } else {
+    primary = <button type="button" className="btn btn-soft btn-block btn-lg" onClick={() => act.reopen(a)}><Icon name="undo" size={20} /> Reabrir horário</button>;
+  }
 
-  const isOpen = a.status === 'pending' || a.status === 'confirmed';
+  // Ações secundárias
+  const secondary: React.ReactNode[] = [];
+  if (a.status === 'pending' && a.confirmation_sent_at) secondary.push(<button key="re" type="button" className="text-btn" onClick={() => act.sendConfirmation(a)}><Icon name="whatsapp" size={16} className="wa-glyph" /> Reenviar</button>);
+  if (a.status === 'pending' && !a.confirmation_sent_at) secondary.push(<button key="ok" type="button" className="text-btn" onClick={() => act.confirm(a)}><Icon name="check" size={16} /> Já confirmou</button>);
+  if (a.status === 'confirmed' && !reminderDue) secondary.push(<button key="lem" type="button" className="text-btn" onClick={() => act.sendReminder(a)}><Icon name="whatsapp" size={16} className="wa-glyph" /> {a.reminder_sent_at ? 'Lembrar de novo' : 'Lembrar'}</button>);
+  if (reminderDue) secondary.push(<button key="done" type="button" className="text-btn" onClick={() => setMode('complete')}>Concluir</button>);
+  if (isOpen) secondary.push(<button key="rem" type="button" className="text-btn" onClick={() => setMode('edit')}>Remarcar</button>);
+  if (isOpen) secondary.push(<button key="can" type="button" className="text-btn danger" onClick={async () => { if (await act.cancel(a)) onClose(); }}>Cancelar</button>);
+  if (a.status === 'done') {
+    secondary.push(<button key="pay" type="button" className="text-btn" onClick={() => setMode('complete')}>Trocar pagamento</button>);
+    secondary.push(<button key="undo" type="button" className="text-btn" onClick={() => act.reopen(a)}>Desfazer conclusão</button>);
+  }
 
   return (
-    <Sheet title={<>{a.client_name} <StatusBadge status={a.status} /></>} onClose={onClose}>
-      {expiryNote && <p className="note-box"><Icon name="clock" size={18} /> {expiryNote}</p>}
-
-      <div className="action-grid">
-        {a.status === 'pending' && (
-          <>
-            <button type="button" className="btn btn-wa" onClick={() => act.sendConfirmation(a)}>
-              <Icon name="whatsapp" size={20} /> {a.confirmation_sent_at ? 'Reenviar confirmação' : 'Enviar confirmação'}
-            </button>
-            <button type="button" className="btn btn-primary" onClick={() => act.confirm(a)}>
-              <Icon name="check" size={20} /> Cliente confirmou
-            </button>
-          </>
-        )}
-        {a.status === 'confirmed' && (
-          <>
-            <button type="button" className="btn btn-wa" onClick={() => act.sendReminder(a)}>
-              <Icon name="whatsapp" size={20} /> {a.reminder_sent_at ? 'Reenviar lembrete' : 'Enviar lembrete'}
-            </button>
-            <button type="button" className="btn btn-primary" onClick={() => setMode('complete')}>
-              <Icon name="money" size={20} /> Concluir
-            </button>
-          </>
-        )}
-        {(a.status === 'cancelled' || a.status === 'expired') && (
-          <button type="button" className="btn btn-primary" onClick={() => act.reopen(a)}>
-            <Icon name="undo" size={20} /> Reabrir
-          </button>
-        )}
-        {a.status === 'done' && (
-          <button type="button" className="btn btn-outline" onClick={() => setMode('complete')}>
-            <Icon name="edit" size={20} /> Trocar pagamento
-          </button>
-        )}
-        <button type="button" className="btn btn-outline" onClick={() => act.chat(a)}>
-          <Icon name="whatsapp" size={20} /> Conversar
-        </button>
-        {isOpen && (
-          <button type="button" className="btn btn-outline" onClick={() => setMode('edit')}>
-            <Icon name="calendar" size={20} /> Remarcar / editar
-          </button>
-        )}
+    <Sheet onClose={onClose}>
+      <div className="who">
+        <Avatar name={a.client_name} size="lg" />
+        <div className="who-text">
+          <h2>{a.client_name}</h2>
+          <small><span className="num">{fmtPhone(a.client_phone)}</span> · {visitN <= 1 ? 'primeira visita' : `${visitN}ª visita`}</small>
+        </div>
+        <a className="round-btn wa" href={waLink(a.client_phone)} target="_blank" rel="noreferrer" aria-label="Conversar no WhatsApp"><Icon name="whatsapp" size={21} /></a>
+        <a className="round-btn" href={`tel:+${a.client_phone}`} aria-label="Ligar"><Icon name="phone" size={19} /></a>
       </div>
 
-      {a.status === 'pending' && a.confirmation_sent_at && (
-        <button type="button" className="link-btn" onClick={() => act.undo(a, 'undo_confirmation_sent')}>
-          Não cheguei a enviar a confirmação
-        </button>
-      )}
-      {a.status === 'confirmed' && a.reminder_sent_at && (
-        <button type="button" className="link-btn" onClick={() => act.undo(a, 'undo_reminder_sent')}>
-          Não cheguei a enviar o lembrete
-        </button>
-      )}
+      <div className="when surface">
+        <div className="eyebrow">{dayLabel}, {weekdayName(a.date)} <StatusBadge status={a.status} /></div>
+        <div className="when-time">{a.start_time} – {a.end_time}</div>
+        <div className="when-row">
+          <span>{a.service_name} <span className="muted">· {fmtDuration(a.duration_min)}</span></span>
+          <Money cents={a.price_cents} />
+        </div>
+      </div>
 
-      <dl className="info-list">
-        {rows.filter(([, v]) => v).map(([k, v]) => (
-          <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
+      <div className="steps" aria-label="Andamento">
+        {steps.map((s) => (
+          <div key={s.label} className={`step ${s.state}`}>
+            <i>{s.state === 'done' && <Icon name="check" size={12} />}{s.state === 'stop' && <Icon name="x" size={11} />}</i>
+            {s.label}
+            {s.sub && <small>{s.sub}</small>}
+          </div>
         ))}
-      </dl>
-
-      <label className="field">
-        <span>Observações</span>
-        <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} onBlur={saveNotes} placeholder="Ex.: prefere tons nude" />
-      </label>
-
-      <div className="sheet-links">
-        <button type="button" className="link-btn" onClick={() => { onClose(); navigate(`/admin/clientes?client=${a.client_id}`); }}>
-          Ver ficha da cliente
-        </button>
-        {a.status === 'done' && (
-          <button type="button" className="link-btn" onClick={() => act.reopen(a)}>Desfazer conclusão</button>
-        )}
-        {isOpen && (
-          <button type="button" className="link-btn danger" onClick={async () => { if (await act.cancel(a)) onClose(); }}>
-            Cancelar agendamento
-          </button>
-        )}
       </div>
+
+      {callout && <p className="callout"><Icon name="clock" size={18} /> {callout}</p>}
+
+      <div className="cta-area">{primary}</div>
+      {secondary.length > 0 && <div className="sub-actions">{secondary}</div>}
+
+      {a.notes && <p className="callout soft"><Icon name="message" size={18} /> {a.notes}</p>}
+      <button type="button" className="note-card surface" onClick={() => setMode('note')}>
+        <Icon name="pencil" size={16} />
+        {a.client.notes ? <span><b>{a.client.notes}</b></span> : <span>Adicionar observação sobre a cliente (preferências, alergias…)</span>}
+      </button>
+
+      <p className="facts">
+        {a.client.last_visit ? <>Última visita {fmtDateBR(a.client.last_visit)} · </> : null}
+        {a.client.visits > 0 && <><Money cents={a.client.total_cents} /> no total · </>}
+        <button type="button" className="link" onClick={() => { onClose(); navigate(`/admin/clientes?client=${a.client_id}`); }}>Ver ficha</button>
+      </p>
     </Sheet>
   );
 }

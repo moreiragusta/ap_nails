@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { firstName, fmtDateBR, fmtMoney, fmtPhone } from '../../../shared/format';
+import { firstName, fmtDateBR, fmtDayMonth, fmtPhone } from '../../../shared/format';
 import { daysBetween } from '../../../shared/time';
-import { STATUS_LABEL, type Appointment, type Client } from '../../../shared/types';
+import { type Appointment, type Client } from '../../../shared/types';
 import { api, errorMessage } from '../../lib/api';
 import { maskPhone, waLink } from '../../lib/phone';
 import { useApptActions } from '../actions';
 import { useAdmin } from '../context';
-import { bumpData, Empty, Icon, Loading, Sheet, toast, useDataVersion } from '../ui';
+import { Avatar, bumpData, Empty, Icon, Loading, Money, PageHead, SecHead, Sheet, StatusBadge, toast, useDataVersion } from '../ui';
 
 export default function Clients() {
-  const { settings } = useAdmin();
+  const { settings, today } = useAdmin();
   const [params, setParams] = useSearchParams();
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<'all' | 'missing'>('all');
@@ -33,55 +33,53 @@ export default function Clients() {
     setParams(params);
   };
 
+  const sub = (c: Client) => {
+    if (c.next_visit) return `Volta ${c.next_visit === today ? 'hoje' : `em ${fmtDayMonth(c.next_visit)}`}`;
+    if (c.last_visit) {
+      const d = daysBetween(c.last_visit, today);
+      return `${c.visits} ${c.visits === 1 ? 'visita' : 'visitas'} · última há ${d === 0 ? 'hoje' : `${d} ${d === 1 ? 'dia' : 'dias'}`}`.replace('há hoje', 'hoje');
+    }
+    return 'Ainda sem atendimento';
+  };
+
   return (
-    <div>
+    <div className="page">
+      <PageHead title="Clientes" eyebrow={list ? `${list.length} ${filter === 'missing' ? 'para chamar de volta' : list.length === 1 ? 'cliente' : 'clientes'}` : ' '} />
       <label className="search">
         <Icon name="search" size={20} />
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nome ou telefone" type="search" />
       </label>
       <div className="seg">
         <button type="button" className={filter === 'all' ? 'is-active' : ''} onClick={() => setFilter('all')}>Todas</button>
-        <button type="button" className={filter === 'missing' ? 'is-active' : ''} onClick={() => setFilter('missing')}>
-          Sumidas ({settings.missing_after_days}+ dias)
-        </button>
+        <button type="button" className={filter === 'missing' ? 'is-active' : ''} onClick={() => setFilter('missing')}>Sumidas</button>
       </div>
-      {filter === 'missing' && <p className="hint">Clientes que não vêm há mais de {settings.missing_after_days} dias e não têm horário marcado.</p>}
+      {filter === 'missing' && <p className="hint">Não vêm há mais de {settings.missing_after_days} dias e não têm horário marcado. Um “oi” pelo WhatsApp costuma trazer de volta.</p>}
 
       {list === null ? <Loading /> : list.length === 0 ? (
-        <Empty icon="users" title={q ? 'Nenhuma cliente encontrada' : filter === 'missing' ? 'Nenhuma cliente sumida' : 'Nenhuma cliente ainda'}
-          text={!q && filter === 'all' ? 'As clientes são cadastradas automaticamente no primeiro agendamento.' : undefined} />
+        <Empty icon="users"
+          title={q ? 'Ninguém encontrado' : filter === 'missing' ? 'Ninguém sumido' : 'Nenhuma cliente ainda'}
+          text={!q && filter === 'all' ? 'Cada cliente entra aqui sozinha no primeiro agendamento.' : undefined} />
       ) : (
-        <ul className="list">
+        <div className="rows">
           {list.map((c) => (
-            <li key={c.id}>
-              <button type="button" className="list-row" onClick={() => open(c.id)}>
-                <span className="avatar">{initials(c.name)}</span>
-                <span className="list-main">
-                  <strong>{c.name}</strong>
-                  <small>{fmtPhone(c.phone)}</small>
-                </span>
-                <span className="list-side">
-                  <small>{c.visits} {c.visits === 1 ? 'visita' : 'visitas'}</small>
-                  <small>{c.last_visit ? `última ${fmtDateBR(c.last_visit)}` : c.next_visit ? 'agendada' : 'sem visitas'}</small>
-                </span>
-              </button>
-              {filter === 'missing' && (
-                <a className="btn btn-wa btn-sm row-action" target="_blank" rel="noreferrer"
-                  href={waLink(c.phone, `Oi, ${firstName(c.name)}! Tudo bem? Faz um tempinho que você não vem fazer as unhas 💅 Que tal agendar um horário? ${location.origin}`)}>
-                  <Icon name="whatsapp" size={18} /> Chamar
+            <div key={c.id} className="row-item" role="button" tabIndex={0} onClick={() => open(c.id)} onKeyDown={(e) => e.key === 'Enter' && open(c.id)}>
+              <Avatar name={c.name} />
+              <span className="grow"><span className="row-title name">{c.name}</span><small>{sub(c)}</small></span>
+              {filter === 'missing' ? (
+                <a className="pill-btn" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                  href={waLink(c.phone, `Oi, ${firstName(c.name)}! Tudo bem? Faz um tempinho que você não vem 💅 Quer que eu reserve um horário pra você? ${location.origin}`)}>
+                  <Icon name="whatsapp" size={15} className="wa-glyph" /> Chamar
                 </a>
-              )}
-            </li>
+              ) : <Icon name="right" size={18} className="chev" />}
+            </div>
           ))}
-        </ul>
+        </div>
       )}
 
       {openId && <ClientSheet id={openId} onClose={() => open(null)} />}
     </div>
   );
 }
-
-const initials = (n: string) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join('');
 
 function ClientSheet({ id, onClose }: { id: number; onClose: () => void }) {
   const { today } = useAdmin();
@@ -98,73 +96,69 @@ function ClientSheet({ id, onClose }: { id: number; onClose: () => void }) {
     }).catch((e) => { toast(errorMessage(e), 'error'); onClose(); });
   }, [id, version]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function save() {
+  async function save(msg = 'Ficha atualizada') {
     try {
       await api(`/api/admin/clients/${id}`, { method: 'PUT', body: form });
-      toast('Cliente atualizada');
+      toast(msg);
       setEditing(false);
       bumpData();
     } catch (e) { toast(errorMessage(e), 'error'); }
   }
 
-  async function saveNotes() {
-    if (!c || form.notes === c.notes) return;
-    await save();
-  }
-
-  if (!c) return <Sheet title="Cliente" onClose={onClose}><Loading /></Sheet>;
+  if (!c) return <Sheet onClose={onClose}><Loading /></Sheet>;
   const since = c.last_visit ? daysBetween(c.last_visit, today) : null;
 
+  if (editing) {
+    return (
+      <Sheet title="Editar ficha" onClose={() => setEditing(false)}
+        footer={<button type="button" className="btn btn-primary btn-block btn-lg" onClick={() => save()}>Salvar</button>}>
+        <label className="field"><span>Nome</span><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+        <label className="field"><span>WhatsApp</span><input value={form.phone} inputMode="tel" onChange={(e) => setForm({ ...form, phone: maskPhone(e.target.value) })} /></label>
+        <label className="field"><span>Observações</span><textarea rows={4} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Preferências, alergias, cuidados" /></label>
+      </Sheet>
+    );
+  }
+
   return (
-    <Sheet title={c.name} onClose={onClose}>
-      <div className="action-grid">
-        <a className="btn btn-wa" href={waLink(c.phone)} target="_blank" rel="noreferrer"><Icon name="whatsapp" size={20} /> Conversar</a>
-        <a className="btn btn-outline" href={`tel:+${c.phone}`}><Icon name="phone" size={20} /> Ligar</a>
-      </div>
-
-      <div className="stats">
-        <div><strong>{c.visits}</strong><span>atendimentos</span></div>
-        <div><strong>{fmtMoney(c.total_cents)}</strong><span>total gasto</span></div>
-        <div><strong>{since === null ? '–' : since === 0 ? 'hoje' : `${since}d`}</strong><span>desde a última</span></div>
-      </div>
-      {c.next_visit && <p className="note-box"><Icon name="calendar" size={18} /> Próximo horário: {fmtDateBR(c.next_visit)}</p>}
-
-      {editing ? (
-        <div className="card-form">
-          <label className="field"><span>Nome</span><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-          <label className="field"><span>WhatsApp</span><input value={form.phone} inputMode="tel" onChange={(e) => setForm({ ...form, phone: maskPhone(e.target.value) })} /></label>
-          <div className="row-buttons">
-            <button type="button" className="btn btn-ghost" onClick={() => setEditing(false)}>Cancelar</button>
-            <button type="button" className="btn btn-primary" onClick={save}>Salvar</button>
-          </div>
+    <Sheet onClose={onClose}>
+      <div className="who">
+        <Avatar name={c.name} size="lg" />
+        <div className="who-text">
+          <h2>{c.name}</h2>
+          <small className="num">{fmtPhone(c.phone)}</small>
         </div>
-      ) : (
-        <dl className="info-list">
-          <div><dt>WhatsApp</dt><dd>{fmtPhone(c.phone)}</dd></div>
-          <div><dt>Cliente desde</dt><dd>{new Date(c.created_at).toLocaleDateString('pt-BR')}</dd></div>
-          <div><dt /><dd><button type="button" className="link-btn" onClick={() => setEditing(true)}>Editar nome ou telefone</button></dd></div>
-        </dl>
-      )}
+        <a className="round-btn wa" href={waLink(c.phone)} target="_blank" rel="noreferrer" aria-label="Conversar no WhatsApp"><Icon name="whatsapp" size={21} /></a>
+        <a className="round-btn" href={`tel:+${c.phone}`} aria-label="Ligar"><Icon name="phone" size={19} /></a>
+      </div>
 
-      <label className="field">
-        <span>Observações (preferências, alergias…)</span>
-        <textarea rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} onBlur={saveNotes} />
-      </label>
+      <div className="stats surface">
+        <div><span>Visitas</span><b>{c.visits}</b></div>
+        <div><span>Total</span><Money cents={c.total_cents} /></div>
+        <div><span>Última</span><b>{since === null ? '–' : since === 0 ? 'hoje' : `${since}d`}</b></div>
+      </div>
 
-      <p className="section-label">Histórico</p>
-      {c.history.length === 0 ? <p className="hint">Nenhum agendamento.</p> : (
-        <ul className="history">
+      {c.next_visit && <p className="callout soft"><Icon name="calendar" size={18} /> Próximo horário em {fmtDateBR(c.next_visit)}</p>}
+
+      <button type="button" className="note-card surface" onClick={() => setEditing(true)}>
+        <Icon name="pencil" size={16} />
+        {c.notes ? <span><b>{c.notes}</b></span> : <span>Adicionar observação (preferências, alergias…)</span>}
+      </button>
+
+      <SecHead title="Histórico" action={<button type="button" className="link" onClick={() => setEditing(true)}>Editar ficha</button>} />
+      {c.history.length === 0 ? <p className="hint">Nenhum agendamento ainda.</p> : (
+        <div className="rows">
           {c.history.map((a) => (
-            <li key={a.id}>
-              <button type="button" onClick={() => act.open(a)}>
-                <span className="h-date">{fmtDateBR(a.date)}<small>{a.start_time}</small></span>
-                <span className="h-main">{a.service_name}<small>{STATUS_LABEL[a.status]}</small></span>
-                <span className="h-value">{fmtMoney(a.price_cents)}</span>
-              </button>
-            </li>
+            <button key={a.id} type="button" className="row-item" onClick={() => act.open(a)}>
+              <span className="grow">
+                <span className="row-title">{a.service_name}</span>
+                <small className="num">{fmtDateBR(a.date)} · {a.start_time}</small>
+              </span>
+              <span className="row-end"><Money cents={a.price_cents} /><small><StatusBadge status={a.status} /></small></span>
+            </button>
           ))}
-        </ul>
+        </div>
       )}
+      <p className="facts">Cliente desde {new Date(c.created_at).toLocaleDateString('pt-BR')}</p>
     </Sheet>
   );
 }

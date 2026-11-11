@@ -7,7 +7,7 @@ import { idParam, int, text } from '../util';
 
 export const financeRoutes = new Hono<AppEnv>();
 
-/** Resumo financeiro e relatórios de um período (?from&to). */
+/** Resumo financeiro e relatórios de um período (?from&to), comparado a ?cmp_from&cmp_to. */
 financeRoutes.get('/', async (c) => {
   const today = nowIn(c.env.BUSINESS_TZ).date;
   const from = c.req.query('from') ?? startOfMonth(today);
@@ -15,14 +15,19 @@ financeRoutes.get('/', async (c) => {
   if (!isDate(from) || !isDate(to) || to < from) throw bad('Período inválido.');
   const db = c.env.DB;
   const DONE = "status = 'done' AND date BETWEEN ?1 AND ?2";
+  const cmpFrom = c.req.query('cmp_from');
+  const cmpTo = c.req.query('cmp_to');
+  const hasCmp = isDate(cmpFrom) && isDate(cmpTo);
 
   const monthsFrom = startOfMonth(addMonths(to, -5));
-  const [totals, expTotal, expected, byDay, byService, byClient, byMethod, byCategory, months, monthsExp, history, expenses] = await Promise.all([
+  const [totals, expTotal, expected, byDay, byService, byClient, byMethod, byCategory, months, monthsExp, history, expenses, previous, byMonth, byMonthExp] = await Promise.all([
     db.prepare(`SELECT COALESCE(SUM(price_cents),0) AS revenue, COUNT(*) AS count FROM appointments WHERE ${DONE}`).bind(from, to).first<{ revenue: number; count: number }>(),
     db.prepare('SELECT COALESCE(SUM(amount_cents),0) AS total FROM expenses WHERE date BETWEEN ?1 AND ?2').bind(from, to).first<{ total: number }>(),
     db.prepare("SELECT COALESCE(SUM(price_cents),0) AS total, COUNT(*) AS count FROM appointments WHERE status IN ('pending','confirmed') AND date BETWEEN ?1 AND ?2").bind(from, to).first<{ total: number; count: number }>(),
     db.prepare(`SELECT date, SUM(price_cents) AS total, COUNT(*) AS count FROM appointments WHERE ${DONE} GROUP BY date ORDER BY date`).bind(from, to).all<{ date: string; total: number; count: number }>(),
-    db.prepare(`SELECT service_name AS name, COUNT(*) AS count, SUM(price_cents) AS total FROM appointments WHERE ${DONE} GROUP BY service_name ORDER BY count DESC, total DESC LIMIT 10`).bind(from, to).all(),
+    db.prepare(`SELECT a.service_name AS name, COUNT(*) AS count, SUM(a.price_cents) AS total, MAX(s.photo_key) AS photo_key
+      FROM appointments a LEFT JOIN services s ON s.id = a.service_id
+      WHERE a.status = 'done' AND a.date BETWEEN ?1 AND ?2 GROUP BY a.service_name ORDER BY total DESC, count DESC LIMIT 10`).bind(from, to).all<{ name: string; count: number; total: number; photo_key: string | null }>(),
     db.prepare(`SELECT c.id, c.name, COUNT(*) AS count, SUM(a.price_cents) AS total FROM appointments a JOIN clients c ON c.id = a.client_id WHERE a.status = 'done' AND a.date BETWEEN ?1 AND ?2 GROUP BY c.id ORDER BY count DESC, total DESC LIMIT 10`).bind(from, to).all(),
     db.prepare(`SELECT payment_method AS method, COUNT(*) AS count, SUM(price_cents) AS total FROM appointments WHERE ${DONE} GROUP BY payment_method ORDER BY total DESC`).bind(from, to).all(),
     db.prepare('SELECT category, SUM(amount_cents) AS total FROM expenses WHERE date BETWEEN ?1 AND ?2 GROUP BY category ORDER BY total DESC').bind(from, to).all(),
@@ -30,6 +35,11 @@ financeRoutes.get('/', async (c) => {
     db.prepare('SELECT substr(date,1,7) AS month, SUM(amount_cents) AS expenses FROM expenses WHERE date BETWEEN ?1 AND ?2 GROUP BY month').bind(monthsFrom, endOfMonth(to)).all<{ month: string; expenses: number }>(),
     db.prepare(`${APPT_SELECT} WHERE a.status = 'done' AND a.date BETWEEN ?1 AND ?2 ORDER BY a.date DESC, a.start_time DESC LIMIT 300`).bind(from, to).all<Appointment>(),
     db.prepare('SELECT * FROM expenses WHERE date BETWEEN ?1 AND ?2 ORDER BY date DESC, id DESC').bind(from, to).all<Expense>(),
+    hasCmp
+      ? db.prepare(`SELECT COALESCE(SUM(price_cents),0) AS revenue, COUNT(*) AS count FROM appointments WHERE ${DONE}`).bind(cmpFrom, cmpTo).first<{ revenue: number; count: number }>()
+      : Promise.resolve(null),
+    db.prepare(`SELECT substr(date,1,7) AS month, SUM(price_cents) AS revenue FROM appointments WHERE ${DONE} GROUP BY month ORDER BY month`).bind(from, to).all<{ month: string; revenue: number }>(),
+    db.prepare('SELECT substr(date,1,7) AS month, SUM(amount_cents) AS expenses FROM expenses WHERE date BETWEEN ?1 AND ?2 GROUP BY month').bind(from, to).all<{ month: string; expenses: number }>(),
   ]);
 
   const revenue = totals?.revenue ?? 0;
@@ -49,7 +59,16 @@ financeRoutes.get('/', async (c) => {
       expected: expected?.total ?? 0, expected_count: expected?.count ?? 0,
     },
     by_day: byDay.results,
-    by_service: byService.results,
+    by_service: byService.results.map(({ photo_key, ...r }) => ({ ...r, photo_url: photo_key ? `/photos/${photo_key}` : null })),
+    // Todos os meses do período, inclusive os sem movimento.
+    by_month: Array.from({ length: 24 }, (_, i) => addMonths(from, i).slice(0, 7))
+      .filter((m) => m <= to.slice(0, 7))
+      .map((m) => ({
+        month: m,
+        revenue: byMonth.results.find((x) => x.month === m)?.revenue ?? 0,
+        expenses: byMonthExp.results.find((x) => x.month === m)?.expenses ?? 0,
+      })),
+    previous: previous ? { from: cmpFrom, to: cmpTo, revenue: previous.revenue, count: previous.count } : null,
     by_client: byClient.results,
     by_method: byMethod.results,
     by_category: byCategory.results,
