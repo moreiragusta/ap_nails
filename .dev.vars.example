@@ -1,6 +1,7 @@
-# Copie para .dev.vars (não versionado) e preencha. Usado só no ambiente local.
-# Gere as chaves com: npm run vapid
+# Copie para .dev.vars (não versionado). Usado só no ambiente local.
+# Gere as chaves de notificação com: npm run vapid
 VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=
-# Senha inicial do painel no ambiente local
-ADMIN_INITIAL_PASSWORD=apnails2026
+# Chaves de TESTE públicas do Cloudflare Turnstile (sempre aprovam). Em produção use as reais.
+TURNSTILE_SITE_KEY=1x00000000000000000000AA
+TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA

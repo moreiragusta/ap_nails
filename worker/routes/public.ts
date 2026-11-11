@@ -5,6 +5,7 @@ import { PUBLIC_SETTING_KEYS } from '../../shared/types';
 import { getService, getSettings, listServices, loadWeekly, slotsForRange, upsertClient } from '../db';
 import { bad, nowISO, type AppEnv } from '../env';
 import { notifyAdmin } from '../push';
+import { checkLimits, clientIp, hit, verifyTurnstile } from '../security';
 import { normalizePhone, text, validPhone } from '../util';
 
 export const publicRoutes = new Hono<AppEnv>();
@@ -16,7 +17,12 @@ publicRoutes.get('/catalog', async (c) => {
   ]);
   const business = Object.fromEntries(PUBLIC_SETTING_KEYS.map((k) => [k, settings[k]]));
   c.header('Cache-Control', 'no-store');
-  return c.json({ business, services: services.map(({ active: _a, sort: _s, ...s }) => s), weekly });
+  return c.json({
+    business,
+    services: services.map(({ active: _a, sort: _s, color: _c, ...s }) => s),
+    weekly,
+    turnstile_site_key: c.env.TURNSTILE_SITE_KEY || null,
+  });
 });
 
 /** Dias e horários livres para um serviço, dentro da janela de agendamento. */
@@ -41,14 +47,14 @@ publicRoutes.post('/book', async (c) => {
   if (!isDate(date) || !isTime(time)) throw bad('Escolha o dia e o horário.');
 
   const db = c.env.DB;
-  const ip = c.req.header('cf-connecting-ip') ?? 'local';
-  const hourAgo = Date.now() - 3600_000;
-  const attempts = await db.prepare('SELECT COUNT(*) AS n FROM booking_attempts WHERE ip = ? AND at > ?').bind(ip, hourAgo).first<{ n: number }>();
-  if ((attempts?.n ?? 0) >= 10) throw bad('Muitas tentativas. Tente de novo mais tarde ou chame no WhatsApp.', 429);
-  await db.batch([
-    db.prepare('DELETE FROM booking_attempts WHERE at < ?').bind(hourAgo),
-    db.prepare('INSERT INTO booking_attempts (ip, at) VALUES (?, ?)').bind(ip, Date.now()),
+  const ip = clientIp(c);
+  // Limites: 6 pedidos por hora por aparelho/IP e 60 por hora no total (protege a agenda de enxurradas).
+  await checkLimits(db, [
+    { key: `book:ip:${ip}`, max: 6, windowMs: 3600_000, message: 'Muitas tentativas de agendamento. Tente mais tarde ou chame no WhatsApp.' },
+    { key: 'book:all', max: 60, windowMs: 3600_000, message: 'Estamos recebendo muitos pedidos agora. Tente em alguns minutos ou chame no WhatsApp.' },
   ]);
+  await verifyTurnstile(c, body.turnstile);
+  await hit(db, `book:ip:${ip}`, 'book:all');
 
   const svc = await getService(db, Number(body.service_id));
   if (!svc || !svc.active || !svc.photo_key) throw bad('Esse serviço não está disponível.');

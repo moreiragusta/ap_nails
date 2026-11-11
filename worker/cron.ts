@@ -4,11 +4,12 @@ import { addDays, localToUtcMs, nowIn, toMin } from '../shared/time';
 import { getInternal, getSettings, setInternal } from './db';
 import { nowISO, type Env } from './env';
 import { notifyAdmin } from './push';
+import { purgeSecurityData } from './security';
 
 const H = 3600_000;
 
 export async function runScheduled(env: Env) {
-  await Promise.all([alertUnsent(env), expireUnanswered(env), reminderNotice(env)]);
+  await Promise.all([alertUnsent(env), expireUnanswered(env), reminderNotice(env), purgeSecurityData(env.DB)]);
 }
 
 /** Agendamentos do site sem confirmação enviada há 3h: avisa a Amanda (uma vez). */

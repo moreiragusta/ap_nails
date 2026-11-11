@@ -3,6 +3,7 @@ import { fmtDateLong, fmtDuration, fmtMoney, monthShort, weekdayShort } from '..
 import type { Service } from '../../shared/types';
 import { api, ApiError, errorMessage } from '../lib/api';
 import { isValidPhone, maskPhone, waLink } from '../lib/phone';
+import { Turnstile } from '../lib/turnstile';
 import { content } from './content';
 import { Sparkle, WhatsAppIcon } from './Ornaments';
 
@@ -11,9 +12,10 @@ interface Booked { id: number; service_name: string; price_cents: number; date: 
 
 type Step = 'when' | 'details' | 'done';
 
-export default function BookingSheet({ service, whatsapp, onClose }: {
+export default function BookingSheet({ service, whatsapp, turnstileKey, onClose }: {
   service: Service;
   whatsapp: string;
+  turnstileKey: string | null;
   onClose: () => void;
 }) {
   const [step, setStep] = useState<Step>('when');
@@ -25,6 +27,8 @@ export default function BookingSheet({ service, whatsapp, onClose }: {
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [booked, setBooked] = useState<Booked | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [tsReset, setTsReset] = useState(0);
   const stripRef = useRef<HTMLDivElement>(null);
 
   async function loadDays(keepDate?: string | null) {
@@ -65,7 +69,7 @@ export default function BookingSheet({ service, whatsapp, onClose }: {
     setSending(true);
     try {
       const r = await api<{ appointment: Booked }>('/api/public/book', {
-        body: { service_id: service.id, date, time, name: name.trim(), phone },
+        body: { service_id: service.id, date, time, name: name.trim(), phone, turnstile: token },
       });
       setBooked(r.appointment);
       setStep('done');
@@ -76,6 +80,7 @@ export default function BookingSheet({ service, whatsapp, onClose }: {
         await loadDays(date);
       }
       setError(errorMessage(err));
+      setTsReset((n) => n + 1); // cada verificação vale para um envio
     } finally {
       setSending(false);
     }
@@ -184,9 +189,10 @@ export default function BookingSheet({ service, whatsapp, onClose }: {
               />
             </label>
             <p className="bk-privacy">{content.privacyNote}</p>
+            <Turnstile siteKey={turnstileKey} action="booking" onToken={setToken} resetKey={tsReset} />
             <div className="bk-actions">
-              <button type="submit" className="btn btn-primary" disabled={sending}>
-                {sending ? 'Enviando…' : 'Confirmar agendamento'}
+              <button type="submit" className="btn btn-primary" disabled={sending || (!!turnstileKey && !token)}>
+                {sending ? 'Enviando…' : turnstileKey && !token ? 'Verificando segurança…' : 'Confirmar agendamento'}
               </button>
             </div>
           </form>

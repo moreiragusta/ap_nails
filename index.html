@@ -17,15 +17,6 @@
       href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Great+Vibes&family=Jost:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <script>
-      // O app instalável (PWA) é só o painel.
-      if (location.pathname.startsWith('/admin')) {
-        var l = document.createElement('link');
-        l.rel = 'manifest';
-        l.href = '/manifest.webmanifest';
-        document.head.appendChild(l);
-      }
-    </script>
   </head>
   <body>
     <div id="root"></div>

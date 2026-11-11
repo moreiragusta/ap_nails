@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getService, listServices } from '../db';
 import { bad, type AppEnv, type Ctx } from '../env';
+import { detectImage } from '../security';
 import { idParam, int, longText, text } from '../util';
 
 export const serviceRoutes = new Hono<AppEnv>();
@@ -31,22 +32,31 @@ async function save(c: Ctx, id: number | null) {
   const items = Array.isArray(data.items) ? [...new Set(data.items.map(Number).filter((n) => Number.isInteger(n)))] : [];
   if (isCombo && items.length < 2) throw bad('Um combo precisa ter pelo menos 2 serviços.');
   const active = data.active === undefined ? true : !!data.active;
+  const color = typeof data.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(data.color) ? data.color : null;
 
   const db = c.env.DB;
   const current = id ? await getService(db, id) : null;
   if (id && !current) throw bad('Serviço não encontrado.', 404);
   if (!photo && !current?.photo_key) throw bad('A foto do serviço é obrigatória.');
-  if (photo && (!PHOTO_TYPES.includes(photo.type) || photo.size > MAX_PHOTO)) throw bad('Foto inválida ou muito grande (máx. 3 MB).');
+  // Confere o conteúdo real do arquivo, não só o tipo informado pelo navegador.
+  let photoBytes: ArrayBuffer | null = null;
+  let photoType: string | null = null;
+  if (photo) {
+    if (photo.size > MAX_PHOTO) throw bad('Foto muito grande (máx. 3 MB).');
+    photoBytes = await photo.arrayBuffer();
+    photoType = detectImage(new Uint8Array(photoBytes.slice(0, 16)));
+    if (!photoType || !PHOTO_TYPES.includes(photoType)) throw bad('Arquivo inválido. Envie uma foto (JPG, PNG ou WebP).');
+  }
 
   if (!id) {
     const max = await db.prepare('SELECT COALESCE(MAX(sort), -1) AS m FROM services').first<{ m: number }>();
     const r = await db.prepare(
-      'INSERT INTO services (name, description, price_cents, duration_min, is_combo, active, sort) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id',
-    ).bind(name, description, price, duration, isCombo ? 1 : 0, active ? 1 : 0, (max?.m ?? -1) + 1).first<{ id: number }>();
+      'INSERT INTO services (name, description, price_cents, duration_min, is_combo, active, sort, color) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+    ).bind(name, description, price, duration, isCombo ? 1 : 0, active ? 1 : 0, (max?.m ?? -1) + 1, color).first<{ id: number }>();
     id = r!.id;
   } else {
-    await db.prepare('UPDATE services SET name = ?, description = ?, price_cents = ?, duration_min = ?, is_combo = ?, active = ? WHERE id = ?')
-      .bind(name, description, price, duration, isCombo ? 1 : 0, active ? 1 : 0, id).run();
+    await db.prepare('UPDATE services SET name = ?, description = ?, price_cents = ?, duration_min = ?, is_combo = ?, active = ?, color = COALESCE(?, color) WHERE id = ?')
+      .bind(name, description, price, duration, isCombo ? 1 : 0, active ? 1 : 0, color, id).run();
   }
 
   const stmts = [db.prepare('DELETE FROM combo_items WHERE combo_id = ?').bind(id)];
@@ -57,10 +67,10 @@ async function save(c: Ctx, id: number | null) {
   }
   await db.batch(stmts);
 
-  if (photo) {
-    const ext = photo.type === 'image/webp' ? 'webp' : photo.type === 'image/png' ? 'png' : 'jpg';
+  if (photoBytes && photoType) {
+    const ext = photoType === 'image/webp' ? 'webp' : photoType === 'image/png' ? 'png' : 'jpg';
     const key = `services/${id}-${Date.now()}.${ext}`;
-    await c.env.PHOTOS.put(key, await photo.arrayBuffer(), { httpMetadata: { contentType: photo.type } });
+    await c.env.PHOTOS.put(key, photoBytes, { httpMetadata: { contentType: photoType } });
     await db.prepare('UPDATE services SET photo_key = ? WHERE id = ?').bind(key, id).run();
     if (current?.photo_key) await c.env.PHOTOS.delete(current.photo_key);
   }

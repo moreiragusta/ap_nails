@@ -30,7 +30,9 @@
   "vars": {
     "BUSINESS_TZ": "America/Sao_Paulo",
     "VAPID_SUBJECT": "mailto:contato@nukki.com.br",
-    "VAPID_PUBLIC_KEY": ""
+    "VAPID_PUBLIC_KEY": "",
+    // Chave pública do Cloudflare Turnstile (antirrobô). Obrigatória em produção.
+    "TURNSTILE_SITE_KEY": ""
   }
-  // Segredos (wrangler secret put): VAPID_PRIVATE_KEY, ADMIN_INITIAL_PASSWORD
+  // Segredos (wrangler secret put): VAPID_PRIVATE_KEY, TURNSTILE_SECRET_KEY
 }

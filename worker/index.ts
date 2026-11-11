@@ -1,15 +1,16 @@
 import { Hono } from 'hono';
 import { nowIn } from '../shared/time';
-import { login, logout, requireAuth } from './auth';
+import { hasPassword, login, logout, recoverWithCode, requireAuth, setupWithToken } from './auth';
+import { runScheduled } from './cron';
 import { getSettings } from './db';
 import { HttpError, type AppEnv, type Env } from './env';
-import { runScheduled } from './cron';
 import { appointmentRoutes } from './routes/appointments';
 import { clientRoutes } from './routes/clients';
 import { financeRoutes } from './routes/finance';
 import { publicRoutes } from './routes/public';
 import { serviceRoutes } from './routes/services';
 import { settingsRoutes } from './routes/settings';
+import { apiHeaders, sameOrigin, verifyTurnstile } from './security';
 
 const app = new Hono<AppEnv>();
 
@@ -21,29 +22,58 @@ app.onError((err, c) => {
   return c.json({ error: 'Algo deu errado. Tente novamente.' }, 500);
 });
 
+app.use('/api/*', apiHeaders);
+
 // Fotos dos serviços (R2), com cache longo: a chave muda a cada nova foto.
 app.get('/photos/*', async (c) => {
   const key = c.req.path.replace(/^\/photos\//, '');
+  if (!/^services\/[\w.-]+$/.test(key)) return c.notFound();
   const obj = await c.env.PHOTOS.get(key);
   if (!obj) return c.notFound();
   return new Response(obj.body, {
     headers: {
       'Content-Type': obj.httpMetadata?.contentType ?? 'image/webp',
       'Cache-Control': 'public, max-age=31536000, immutable',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'",
     },
   });
 });
 
+app.use('/api/public/*', sameOrigin);
 app.route('/api/public', publicRoutes);
 
 // ---------------------------------------------------------------- painel
 const admin = new Hono<AppEnv>();
+admin.use('*', sameOrigin);
+
+/** Dados para a tela de entrada: antirrobô e se a senha já foi criada. */
+admin.get('/auth/config', async (c) => c.json({
+  turnstile_site_key: c.env.TURNSTILE_SITE_KEY || null,
+  has_password: await hasPassword(c.env.DB),
+}));
 
 admin.post('/login', async (c) => {
-  const { password } = await c.req.json<{ password: string }>().catch(() => ({ password: '' }));
-  await login(c, String(password ?? ''));
+  const b = await c.req.json<{ password?: string; turnstile?: string }>().catch(() => ({} as { password?: string; turnstile?: string }));
+  await verifyTurnstile(c, b.turnstile);
+  await login(c, b.password);
   return c.json({ ok: true });
 });
+
+admin.post('/setup', async (c) => {
+  const b = await c.req.json<{ token?: string; password?: string; turnstile?: string }>().catch(() => ({} as Record<string, string>));
+  await verifyTurnstile(c, b.turnstile);
+  const recovery_code = await setupWithToken(c, b.token, b.password);
+  return c.json({ ok: true, recovery_code });
+});
+
+admin.post('/recover', async (c) => {
+  const b = await c.req.json<{ code?: string; password?: string; turnstile?: string }>().catch(() => ({} as Record<string, string>));
+  await verifyTurnstile(c, b.turnstile);
+  const recovery_code = await recoverWithCode(c, b.code, b.password);
+  return c.json({ ok: true, recovery_code });
+});
+
 admin.post('/logout', async (c) => {
   await logout(c);
   return c.json({ ok: true });

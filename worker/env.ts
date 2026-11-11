@@ -8,10 +8,13 @@ export interface Env {
   VAPID_SUBJECT: string;
   VAPID_PUBLIC_KEY: string;
   VAPID_PRIVATE_KEY?: string;
-  ADMIN_INITIAL_PASSWORD?: string;
+  /** Chave pública do Cloudflare Turnstile (antirrobô). */
+  TURNSTILE_SITE_KEY?: string;
+  /** Segredo do Turnstile (wrangler secret put TURNSTILE_SECRET_KEY). */
+  TURNSTILE_SECRET_KEY?: string;
 }
 
-export type AppEnv = { Bindings: Env };
+export type AppEnv = { Bindings: Env; Variables: { sessionId: number } };
 export type Ctx = Context<AppEnv>;
 
 export class HttpError extends Error {

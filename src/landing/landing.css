@@ -277,6 +277,7 @@
 }
 .landing .field input:focus { border-color: var(--rose-600); box-shadow: 0 0 0 3px rgba(158, 98, 88, .15); }
 .bk-privacy { font-size: 13px; color: var(--rose-700); margin: 0; }
+.landing .turnstile { margin-top: 14px; }
 
 .bk-done { text-align: center; padding: 18px 0 0; }
 .bk-done-icon {

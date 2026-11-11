@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { fmtDuration } from '../../../shared/format';
-import type { Service } from '../../../shared/types';
+import { SERVICE_COLORS, type Service } from '../../../shared/types';
 import { api, errorMessage } from '../../lib/api';
 import { preparePhoto } from '../../lib/image';
 import { useAdmin } from '../context';
@@ -49,7 +49,7 @@ export default function Services() {
               <button type="button" className="row-item" style={{ padding: 0 }} onClick={() => setEditing(s)}>
                 {s.photo_url ? <img className="thumb" src={s.photo_url} alt="" /> : <span className="thumb" />}
                 <span className="grow">
-                  <span className="row-title">{s.name}{s.is_combo && <span className="combo-tag">Combo</span>}</span>
+                  <span className="row-title"><span className="svc-dot" style={{ '--svc': s.color } as React.CSSProperties} />{s.name}{s.is_combo && <span className="combo-tag">Combo</span>}</span>
                   <small><Money cents={s.price_cents} /> · {fmtDuration(s.duration_min)}</small>
                   {s.is_combo && <small>{s.items.map((x) => x.name).join(' + ')}</small>}
                   {!s.active && <small>Oculto no site</small>}
@@ -90,6 +90,7 @@ function ServiceForm({ service, combo, onClose }: { service: Service | null; com
   const [price, setPrice] = useState(service ? centsToInput(service.price_cents) : '');
   const [duration, setDuration] = useState(service?.duration_min ?? 60);
   const [active, setActive] = useState(service?.active ?? true);
+  const [color, setColor] = useState(service?.color ?? SERVICE_COLORS[services.length % SERVICE_COLORS.length]);
   const [items, setItems] = useState<number[]>(service?.items.map((i) => i.id) ?? []);
   const [photo, setPhoto] = useState<Blob | null>(null);
   const [preview, setPreview] = useState<string | null>(service?.photo_url ?? null);
@@ -121,7 +122,7 @@ function ServiceForm({ service, combo, onClose }: { service: Service | null; com
     if (!preview) return toast('A foto é obrigatória.', 'error');
     if (combo && items.length < 2) return toast('Escolha pelo menos 2 serviços para o combo.', 'error');
     const fd = new FormData();
-    fd.set('data', JSON.stringify({ name, description, price_cents: cents, duration_min: duration, active, is_combo: combo, items }));
+    fd.set('data', JSON.stringify({ name, description, price_cents: cents, duration_min: duration, active, is_combo: combo, items, color }));
     if (photo) fd.set('photo', photo, photo.type === 'image/webp' ? 'foto.webp' : 'foto.jpg');
     setBusy(true);
     try {
@@ -191,6 +192,16 @@ function ServiceForm({ service, combo, onClose }: { service: Service | null; com
             {DURATIONS.map((d) => <option key={d} value={d}>{fmtDuration(d)}</option>)}
           </select>
         </label>
+      </div>
+
+      <div className="field">
+        <span>Cor na agenda</span>
+        <div className="swatches" role="radiogroup" aria-label="Cor do serviço">
+          {SERVICE_COLORS.map((c) => (
+            <button key={c} type="button" role="radio" aria-checked={color === c} aria-label={`Cor ${c}`}
+              className={`swatch${color === c ? ' is-selected' : ''}`} style={{ background: c }} onClick={() => setColor(c)} />
+          ))}
+        </div>
       </div>
 
       <label className="check-row surface" style={{ marginBottom: 12 }}>

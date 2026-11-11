@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { STATUS_LABEL, type Status } from '../../shared/types';
+import { SERVICE_COLORS, STATUS_LABEL, type Status } from '../../shared/types';
 
 // ------------------------------------------------------------------ ícones
 
@@ -171,8 +171,21 @@ export function Money({ cents, showCents = false, className = '' }: { cents: num
 
 export const initials = (n: string) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join('');
 
+/** Cor estável por nome: cada cliente fica sempre com a mesma cor. */
+export function nameColor(name: string) {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return SERVICE_COLORS[h % SERVICE_COLORS.length];
+}
+
 export function Avatar({ name, size }: { name: string; size?: 'lg' }) {
-  return <span className={`avatar${size ? ` ${size}` : ''}`} aria-hidden="true">{initials(name)}</span>;
+  const c = nameColor(name);
+  return (
+    <span className={`avatar${size ? ` ${size}` : ''}`} aria-hidden="true"
+      style={{ background: `color-mix(in srgb, ${c} 22%, #fff)`, color: `color-mix(in srgb, ${c} 70%, #2e1f1c)` }}>
+      {initials(name)}
+    </span>
+  );
 }
 
 export function PageHead({ eyebrow, title, onBack, backLabel = 'Voltar', right }: {

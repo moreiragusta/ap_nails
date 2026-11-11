@@ -1,6 +1,6 @@
 import { fmtDateShort } from '../../shared/format';
 import { toMin } from '../../shared/time';
-import { PAYMENT_LABEL, type Appointment } from '../../shared/types';
+import { PAYMENT_LABEL, serviceColor, type Appointment } from '../../shared/types';
 import { useApptActions, useReminderDate } from './actions';
 import { useAdmin } from './context';
 import { Icon, Money, StatusBadge } from './ui';
@@ -39,7 +39,7 @@ export default function ApptCard({ a, showDate = false, minHeight }: { a: Appoin
       role="button"
       tabIndex={0}
       className={`blk status-${a.status}${inactive ? ' is-inactive' : ''}`}
-      style={minHeight ? { minHeight } : undefined}
+      style={{ minHeight, '--svc': serviceColor(a.service_id ?? 0, a.service_color) } as React.CSSProperties}
       onClick={() => act.open(a)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); act.open(a); } }}
     >
@@ -49,7 +49,7 @@ export default function ApptCard({ a, showDate = false, minHeight }: { a: Appoin
       </div>
       <p className="blk-sub">
         {showDate && <span className="blk-date">{fmtDateShort(a.date)} · </span>}
-        {a.service_name} · <span className="num">{a.start_time}–{a.end_time}</span>
+        <span className="svc-dot" />{a.service_name} · <span className="num">{a.start_time}–{a.end_time}</span>
       </p>
       {a.notes && <p className="blk-note">“{a.notes}”</p>}
       <div className="blk-foot">

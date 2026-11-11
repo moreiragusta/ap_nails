@@ -22,7 +22,7 @@ interface Report {
 }
 
 type Period = 'week' | 'month' | 'year' | 'custom';
-const PAY_COLORS: Record<string, string> = { pix: '#9e6258', credit: '#d9a089', cash: '#c9b4ad', debit: '#e7d6cf', null: '#efe5e0' };
+const PAY_COLORS: Record<string, string> = { pix: '#32BCAD', cash: '#2F8A57', debit: '#3B6FB6', credit: '#8A4FBF', null: '#d8cdc9' };
 
 function rangeFor(period: Period, anchor: string, custom: { from: string; to: string }) {
   if (period === 'week') {
@@ -103,8 +103,11 @@ export default function Finance() {
           </div>
 
           <div className="split surface">
-            <div><span>Despesas</span><Money cents={data.summary.expenses} /></div>
-            <div><span>{data.summary.profit < 0 ? 'Prejuízo' : 'Lucro'}</span><Money cents={data.summary.profit} /></div>
+            <div><span className="lbl-cost">Despesas</span><Money cents={data.summary.expenses} className="cost" /></div>
+            <div className={data.summary.profit < 0 ? 'is-neg' : data.summary.profit > 0 ? 'is-pos' : ''}>
+              <span className={data.summary.profit < 0 ? 'lbl-neg' : 'lbl-pos'}>{data.summary.profit < 0 ? 'Prejuízo' : 'Lucro'}</span>
+              <Money cents={data.summary.profit} className={data.summary.profit > 0 ? 'pos' : ''} />
+            </div>
           </div>
 
           <div className="chart surface"><Chart data={data} period={period} today={today} /></div>
@@ -180,17 +183,21 @@ function Delta({ now, before, label: text }: { now: number; before: number | nul
 
 function Chart({ data, period, today }: { data: Report; period: Period; today: string }) {
   if (period === 'year') {
-    const max = Math.max(1, ...data.by_month.map((m) => m.revenue));
+    const max = Math.max(1, ...data.by_month.flatMap((m) => [m.revenue, m.expenses]));
     return (
       <>
-        <div className="bars" role="img" aria-label="Faturamento por mês">
+        <div className="bars" role="img" aria-label="Faturamento e despesas por mês">
           {data.by_month.map((m) => (
             <div key={m.month} className="bar-col" title={m.month}>
-              <div className={`bar${m.revenue ? ' v' : ''}${m.month === today.slice(0, 7) ? ' today' : ''}`} style={{ height: `${Math.max(3, (m.revenue / max) * 100)}%` }} />
+              <div className="bar-pair">
+                <div className={`bar${m.revenue ? ' v' : ''}`} style={{ height: `${Math.max(3, (m.revenue / max) * 100)}%` }} />
+                <div className={`bar${m.expenses ? ' exp' : ''}`} style={{ height: `${Math.max(3, (m.expenses / max) * 100)}%` }} />
+              </div>
             </div>
           ))}
         </div>
         <div className="axis">{data.by_month.map((m) => <span key={m.month}>{monthShort(Number(m.month.slice(5)))[0].toUpperCase()}</span>)}</div>
+        <div className="legend-bars"><span><i style={{ background: '#b0675b' }} />Faturamento</span><span><i style={{ background: '#c9773b' }} />Despesas</span></div>
       </>
     );
   }

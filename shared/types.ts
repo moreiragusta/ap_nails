@@ -31,8 +31,15 @@ export interface Service {
   is_combo: boolean;
   active: boolean;
   sort: number;
+  /** Cor do serviço na agenda (hex). */
+  color: string;
   items: { id: number; name: string }[];
 }
+
+/** Paleta de cores de serviço (suaves, distintas entre si, legíveis no fundo marfim). */
+export const SERVICE_COLORS = ['#D9828A', '#9B7FD1', '#3BA99C', '#5B8DD9', '#E0A33B', '#5FA36A', '#E07A5F', '#B0649F'];
+export const serviceColor = (id: number, color?: string | null) =>
+  color && /^#[0-9a-fA-F]{6}$/.test(color) ? color : SERVICE_COLORS[(Math.max(1, id) - 1) % SERVICE_COLORS.length];
 
 export interface Appointment {
   id: number;
@@ -41,6 +48,8 @@ export interface Appointment {
   client_phone: string;
   service_id: number | null;
   service_name: string;
+  /** Cor do serviço (do cadastro atual), para a agenda. */
+  service_color?: string | null;
   price_cents: number;
   duration_min: number;
   date: string;

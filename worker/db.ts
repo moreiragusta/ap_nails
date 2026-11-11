@@ -1,7 +1,7 @@
 import { computeSlots, dayBlocks, dayWindow, overlaps, type Interval } from '../shared/schedule';
 import { addDays, nowIn, toMin } from '../shared/time';
 import {
-  DEFAULT_SETTINGS, type Appointment, type DateException, type Service, type Settings, type WeeklyHour,
+  DEFAULT_SETTINGS, serviceColor, type Appointment, type DateException, type Service, type Settings, type WeeklyHour,
 } from '../shared/types';
 import type { Env } from './env';
 
@@ -38,7 +38,7 @@ export async function setInternal(db: D1Database, key: string, value: string) {
 
 interface ServiceRow {
   id: number; name: string; description: string; price_cents: number; duration_min: number;
-  photo_key: string | null; is_combo: number; active: number; sort: number;
+  photo_key: string | null; is_combo: number; active: number; sort: number; color: string | null;
 }
 
 export async function listServices(db: D1Database, onlyPublic = false): Promise<Service[]> {
@@ -57,6 +57,7 @@ export async function listServices(db: D1Database, onlyPublic = false): Promise<
     is_combo: !!r.is_combo,
     active: !!r.active,
     sort: r.sort,
+    color: serviceColor(r.id, r.color),
     items: items.filter((i) => i.combo_id === r.id).map((i) => ({ id: i.id, name: i.name })),
   }));
 }
@@ -143,8 +144,8 @@ export async function findConflict(env: Env, date: string, start: string, end: s
 
 // ------------------------------------------------------------ agendamentos
 
-export const APPT_SELECT = `SELECT a.*, c.name AS client_name, c.phone AS client_phone
-  FROM appointments a JOIN clients c ON c.id = a.client_id`;
+export const APPT_SELECT = `SELECT a.*, c.name AS client_name, c.phone AS client_phone, s.color AS service_color
+  FROM appointments a JOIN clients c ON c.id = a.client_id LEFT JOIN services s ON s.id = a.service_id`;
 
 export async function getAppointment(db: D1Database, id: number): Promise<Appointment | null> {
   return db.prepare(`${APPT_SELECT} WHERE a.id = ?`).bind(id).first<Appointment>();

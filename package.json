@@ -13,7 +13,7 @@
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "cf-typegen": "wrangler types worker/worker-configuration.d.ts",
     "vapid": "node scripts/generate-vapid.mjs",
-    "set-password": "node scripts/set-password.mjs"
+    "setup-link": "node scripts/setup-link.mjs"
   },
   "dependencies": {
     "@block65/webcrypto-web-push": "^2.0.0",

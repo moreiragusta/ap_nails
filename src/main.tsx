@@ -4,6 +4,14 @@ import { BrowserRouter, Route, Routes } from 'react-router';
 import './theme.css';
 import Landing from './landing/Landing';
 
+// O app instalável (PWA) é só o painel.
+if (location.pathname.startsWith('/admin')) {
+  const link = document.createElement('link');
+  link.rel = 'manifest';
+  link.href = '/manifest.webmanifest';
+  document.head.appendChild(link);
+}
+
 // O painel é carregado à parte: a landing fica leve para as clientes.
 const AdminApp = lazy(() => import('./admin/AdminApp'));
 

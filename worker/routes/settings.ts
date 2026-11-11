@@ -1,10 +1,11 @@
 import { Hono } from 'hono';
 import { isDate, isTime, nowIn, toMin } from '../../shared/time';
 import { DEFAULT_SETTINGS, type ExceptionKind, type Settings } from '../../shared/types';
-import { changePassword } from '../auth';
+import { changePassword, describeDevice, listSessions, recoveryInfo, regenerateRecovery, revokeSessions } from '../auth';
 import { getSettings, loadExceptions, loadWeekly, saveSettings } from '../db';
 import { bad, type AppEnv } from '../env';
 import { notifyAdmin } from '../push';
+import { logEvent } from '../security';
 import { idParam, longText, normalizePhone, text } from '../util';
 
 export const settingsRoutes = new Hono<AppEnv>();
@@ -118,8 +119,40 @@ settingsRoutes.delete('/exceptions/:id', async (c) => {
 // ---------------------------------------------------------- senha e notificações
 
 settingsRoutes.post('/password', async (c) => {
-  const { current, next } = await c.req.json<{ current: string; next: string }>();
-  await changePassword(c, String(current ?? ''), String(next ?? ''));
+  const { current, next } = await c.req.json<{ current?: string; next?: string }>();
+  await changePassword(c, c.get('sessionId'), current, next);
+  return c.json({ ok: true });
+});
+
+/** Gera um novo código de recuperação (o anterior deixa de valer). Exige a senha atual. */
+settingsRoutes.post('/recovery-code', async (c) => {
+  const { current } = await c.req.json<{ current?: string }>();
+  return c.json({ recovery_code: await regenerateRecovery(c, current) });
+});
+
+/** Aparelhos conectados, histórico recente e situação do código de recuperação. */
+settingsRoutes.get('/security', async (c) => {
+  const sessions = (await listSessions(c, c.get('sessionId'))).map(({ user_agent, ip: _ip, ...s }) => ({ ...s, device: describeDevice(user_agent) }));
+  const { results } = await c.env.DB.prepare('SELECT type, user_agent, at FROM security_events ORDER BY at DESC LIMIT 15')
+    .all<{ type: string; user_agent: string; at: number }>();
+  return c.json({
+    sessions,
+    events: results.map((e) => ({ type: e.type, at: e.at, device: describeDevice(e.user_agent) })),
+    recovery: await recoveryInfo(c.env.DB),
+  });
+});
+
+settingsRoutes.post('/sessions/revoke-others', async (c) => {
+  await revokeSessions(c, c.get('sessionId'));
+  await logEvent(c, 'sessions_revoked');
+  return c.json({ ok: true });
+});
+
+settingsRoutes.delete('/sessions/:id', async (c) => {
+  const id = idParam(c.req.param('id'));
+  if (id === c.get('sessionId')) throw bad('Para sair deste aparelho, use “Sair deste celular”.');
+  await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(id).run();
+  await logEvent(c, 'sessions_revoked', 'um aparelho');
   return c.json({ ok: true });
 });
 

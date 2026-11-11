@@ -13,6 +13,7 @@ interface Catalog {
   business: { business_name: string; owner_name: string; address: string; maps_url: string; whatsapp: string; instagram: string };
   services: Service[];
   weekly: WeeklyHour[];
+  turnstile_site_key: string | null;
 }
 
 const DAY_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -184,7 +185,7 @@ export default function Landing() {
         <Sparkle size={12} /> Agendar
       </a>
 
-      {selected && <BookingSheet service={selected} whatsapp={whatsapp} onClose={() => setSelected(null)} />}
+      {selected && <BookingSheet service={selected} whatsapp={whatsapp} turnstileKey={catalog?.turnstile_site_key ?? null} onClose={() => setSelected(null)} />}
     </div>
   );
 }

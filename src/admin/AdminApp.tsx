@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { NavLink, Route, Routes, useLocation, useSearchParams } from 'react-router';
+import { NavLink, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router';
 import type { Service, Settings } from '../../shared/types';
-import { api, ApiError, errorMessage } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 import { registerSW } from '../lib/push';
 import './admin.css';
 import AppointmentForm from './AppointmentForm';
 import AppointmentSheet from './AppointmentSheet';
+import { FirstAccess, Login, Recover } from './AuthScreens';
 import { AdminContext } from './context';
 import Agenda from './pages/Agenda';
 import Clients from './pages/Clients';
@@ -21,6 +22,9 @@ export default function AdminApp() {
   const [state, setState] = useState<'loading' | 'login' | 'ready' | 'error'>('loading');
   const [me, setMe] = useState<Me | null>(null);
   const [services, setServices] = useState<Service[]>([]);
+  const [recovering, setRecovering] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const load = useCallback(async () => {
     try {
@@ -54,8 +58,20 @@ export default function AdminApp() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [state]);
 
+  const enter = () => { setRecovering(false); navigate('/admin', { replace: true }); setState('loading'); load(); };
+
+  // Primeiro acesso: link de uso único, vale mesmo sem estar logada.
+  if (location.pathname.startsWith('/admin/primeiro-acesso')) return <><FirstAccess onDone={enter} /><GlobalLayers /></>;
+
   if (state === 'loading') return <div className="admin boot"><span className="mono" /><p className="muted">Carregando…</p></div>;
-  if (state === 'login') return <Login onDone={load} />;
+  if (state === 'login') {
+    return (
+      <>
+        {recovering ? <Recover onDone={enter} onBack={() => setRecovering(false)} /> : <Login onDone={enter} onForgot={() => setRecovering(true)} />}
+        <GlobalLayers />
+      </>
+    );
+  }
   if (state === 'error' || !me) {
     return (
       <div className="admin boot">
@@ -146,43 +162,6 @@ function Shell() {
           onClose={() => closeParams('appt', 'do')}
         />
       )}
-    </div>
-  );
-}
-
-function Login({ onDone }: { onDone: () => void }) {
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      await api('/api/admin/login', { body: { password } });
-      onDone();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="admin boot">
-      <form className="login-card" onSubmit={submit}>
-        <span className="mono" />
-        <p className="eyebrow">AP Nails</p>
-        <h1 className="display">Olá, Amanda</h1>
-        <label className="field">
-          <span>Senha</span>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" autoFocus />
-        </label>
-        {error && <p className="form-error" role="alert">{error}</p>}
-        <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={busy || !password}>{busy ? 'Entrando…' : 'Entrar'}</button>
-        <p className="login-help">Esqueceu a senha? Fale com a NUKKI.</p>
-      </form>
     </div>
   );
 }

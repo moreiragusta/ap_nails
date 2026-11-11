@@ -6,6 +6,7 @@ import { api, errorMessage } from '../../lib/api';
 import { maskPhone } from '../../lib/phone';
 import { enablePush, pushState, type PushState } from '../../lib/push';
 import { useAdmin, whatsappFor } from '../context';
+import { NewPasswordFields, passwordReady, RecoveryCodeReveal } from '../AuthScreens';
 import { bumpData, confirmDialog, Empty, Icon, PageHead, Sheet, toast } from '../ui';
 
 type SaveFn = (patch: Partial<Settings>, msg?: string) => Promise<boolean>;
@@ -18,7 +19,7 @@ const TITLES: Record<string, string> = {
   mensagens: 'Mensagens',
   notificacoes: 'Notificações',
   'clientes-despesas': 'Clientes e despesas',
-  conta: 'Senha e acesso',
+  conta: 'Senha e segurança',
 };
 
 /** Uma seção de ajustes por página (aberta a partir da aba Mais). */
@@ -405,32 +406,171 @@ function Others({ settings, save }: { settings: Settings; save: SaveFn }) {
   );
 }
 
-// ------------------------------------------------------------ conta
+// ------------------------------------------------------------ senha e segurança
+
+interface SecurityInfo {
+  sessions: { id: number; created_at: number; last_seen: number; device: string; current: boolean }[];
+  events: { type: string; at: number; device: string }[];
+  recovery: { created_at: number } | null;
+}
+
+type IconName = Parameters<typeof Icon>[0]['name'];
+const EVENT_LABEL: Record<string, [string, IconName, string]> = {
+  login_ok: ['Entrou no painel', 'check', 'ok'],
+  login_fail: ['Senha errada', 'alert', 'bad'],
+  logout: ['Saiu do painel', 'logout', ''],
+  password_created: ['Senha criada', 'shield', 'ok'],
+  password_changed: ['Senha trocada', 'shield', 'ok'],
+  recovery_used: ['Senha redefinida com o código', 'shield', 'warn'],
+  recovery_fail: ['Código de recuperação errado', 'alert', 'bad'],
+  recovery_regenerated: ['Novo código de recuperação', 'shield', ''],
+  setup_link_used: ['Link de primeiro acesso usado', 'link', 'warn'],
+  setup_link_fail: ['Link de primeiro acesso inválido', 'alert', 'bad'],
+  sessions_revoked: ['Aparelhos desconectados', 'logout', ''],
+};
+
+function ago(ms: number) {
+  const m = Math.round((Date.now() - ms) / 60000);
+  if (m < 2) return 'agora';
+  if (m < 60) return `há ${m} min`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `há ${h}h`;
+  return new Date(ms).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
 
 function Security() {
-  const [current, setCurrent] = useState('');
-  const [next, setNext] = useState('');
+  const [info, setInfo] = useState<SecurityInfo | null>(null);
+  const [mode, setMode] = useState<'password' | 'recovery' | null>(null);
+  const load = () => api<SecurityInfo>('/api/admin/settings/security').then(setInfo).catch(() => {});
+  useEffect(() => { load(); }, []);
 
-  async function change() {
-    try {
-      await api('/api/admin/settings/password', { body: { current, next } });
-      toast('Senha alterada');
-      setCurrent(''); setNext('');
-    } catch (e) { toast(errorMessage(e), 'error'); }
+  async function revokeOthers() {
+    if (!(await confirmDialog('Desconectar os outros aparelhos?', { text: 'Quem estiver usando o painel em outro aparelho vai precisar da senha para entrar de novo.', ok: 'Desconectar' }))) return;
+    await api('/api/admin/settings/sessions/revoke-others', { body: {} });
+    toast('Outros aparelhos desconectados');
+    load();
   }
-
+  async function revokeOne(id: number) {
+    await api(`/api/admin/settings/sessions/${id}`, { method: 'DELETE' });
+    toast('Aparelho desconectado');
+    load();
+  }
   async function logout() {
     if (!(await confirmDialog('Sair deste celular?', { text: 'Você vai precisar da senha para entrar de novo.', ok: 'Sair' }))) return;
     await api('/api/admin/logout', { body: {} }).catch(() => {});
     location.href = '/admin';
   }
 
+  const others = info?.sessions.filter((x) => !x.current) ?? [];
+  const dayAgo = Date.now() - 86400_000;
+  const failures = info?.events.filter((e) => e.at > dayAgo && ['login_fail', 'recovery_fail', 'setup_link_fail'].includes(e.type)).length ?? 0;
+
   return (
     <>
-      <label className="field"><span>Senha atual</span><input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" /></label>
-      <label className="field"><span>Nova senha <small>(mínimo 6 caracteres)</small></span><input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" /></label>
-      <button type="button" className="btn btn-primary btn-block btn-lg" disabled={!current || next.length < 6} onClick={change}>Trocar senha</button>
+      {failures >= 3 && (
+        <p className="callout danger"><Icon name="alert" size={18} /> {failures} tentativas erradas nas últimas 24h. Se não foi você, troque a senha e desconecte os outros aparelhos.</p>
+      )}
+      {info && !info.recovery && (
+        <p className="callout"><Icon name="alert" size={18} /> Você ainda não tem um código de recuperação. Sem ele, se esquecer a senha, vai precisar de ajuda para entrar.</p>
+      )}
+
+      <div className="sec-head"><h3>Acesso</h3></div>
+      <div className="rows">
+        <button type="button" className="row-item" onClick={() => setMode('password')}>
+          <span className="menu-icon"><Icon name="shield" size={19} /></span>
+          <span className="grow"><span className="row-title">Trocar senha</span><small>Os outros aparelhos são desconectados</small></span>
+          <Icon name="right" size={18} className="chev" />
+        </button>
+        <button type="button" className="row-item" onClick={() => setMode('recovery')}>
+          <span className={`menu-icon${info && !info.recovery ? ' warn' : ''}`}><Icon name="link" size={19} /></span>
+          <span className="grow">
+            <span className="row-title">Código de recuperação</span>
+            <small>{info?.recovery ? `Criado em ${new Date(info.recovery.created_at).toLocaleDateString('pt-BR')} · gerar um novo` : 'Crie agora para nunca ficar sem acesso'}</small>
+          </span>
+          <Icon name="right" size={18} className="chev" />
+        </button>
+      </div>
+
+      <div className="sec-head"><h3>Aparelhos conectados</h3>{others.length > 0 && <button type="button" className="link" onClick={revokeOthers}>Desconectar outros</button>}</div>
+      <div className="rows">
+        {info?.sessions.map((x) => (
+          <div key={x.id} className="row-item">
+            <span className="menu-icon"><Icon name="phone" size={18} /></span>
+            <span className="grow">
+              <span className="row-title">{x.device}{x.current && <span className="tag-here">este</span>}</span>
+              <small>Usado {ago(x.last_seen)} · desde {new Date(x.created_at).toLocaleDateString('pt-BR')}</small>
+            </span>
+            {!x.current && <button type="button" className="text-btn danger" onClick={() => revokeOne(x.id)}>Sair</button>}
+          </div>
+        ))}
+      </div>
+
+      <div className="sec-head"><h3>Atividade recente</h3></div>
+      {info && info.events.length === 0 ? <p className="hint">Nenhuma atividade ainda.</p> : (
+        <div className="rows">
+          {info?.events.map((e, i) => {
+            const [label, icon, tone] = EVENT_LABEL[e.type] ?? [e.type, 'shield' as IconName, ''];
+            return (
+              <div key={i} className="row-item">
+                <span className={`menu-icon ${tone}`}><Icon name={icon} size={17} /></span>
+                <span className="grow"><span className="row-title">{label}</span><small>{e.device}</small></span>
+                <small className="muted">{ago(e.at)}</small>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <button type="button" className="btn btn-ghost btn-block" style={{ marginTop: 24 }} onClick={logout}><Icon name="logout" size={18} /> Sair deste celular</button>
+
+      {mode === 'password' && <ChangePassword onClose={() => { setMode(null); load(); }} />}
+      {mode === 'recovery' && <NewRecoveryCode onClose={() => { setMode(null); load(); }} />}
     </>
+  );
+}
+
+function ChangePassword({ onClose }: { onClose: () => void }) {
+  const [current, setCurrent] = useState('');
+  const [pw, setPw] = useState('');
+  const [pw2, setPw2] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    setBusy(true);
+    try {
+      await api('/api/admin/settings/password', { body: { current, next: pw } });
+      toast('Senha trocada');
+      onClose();
+    } catch (e) { toast(errorMessage(e), 'error'); } finally { setBusy(false); }
+  }
+  return (
+    <Sheet title="Trocar senha" onClose={onClose}
+      footer={<button type="button" className="btn btn-primary btn-block btn-lg" disabled={busy || !current || !passwordReady(pw, pw2)} onClick={save}>{busy ? 'Salvando…' : 'Trocar senha'}</button>}>
+      <label className="field"><span>Senha atual</span><input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" /></label>
+      <NewPasswordFields value={pw} confirm={pw2} onChange={setPw} onConfirm={setPw2} />
+    </Sheet>
+  );
+}
+
+function NewRecoveryCode({ onClose }: { onClose: () => void }) {
+  const [current, setCurrent] = useState('');
+  const [code, setCode] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function generate() {
+    setBusy(true);
+    try {
+      const r = await api<{ recovery_code: string }>('/api/admin/settings/recovery-code', { body: { current } });
+      setCode(r.recovery_code);
+    } catch (e) { toast(errorMessage(e), 'error'); } finally { setBusy(false); }
+  }
+  return (
+    <Sheet title="Código de recuperação" onClose={onClose}>
+      {code ? <RecoveryCodeReveal code={code} onDone={onClose} doneLabel="Concluir" /> : (
+        <>
+          <p className="hint">Um código novo substitui o anterior, que deixa de valer. Confirme sua senha para continuar.</p>
+          <label className="field"><span>Senha atual</span><input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" /></label>
+          <button type="button" className="btn btn-primary btn-block btn-lg" disabled={busy || !current} onClick={generate}>{busy ? 'Gerando…' : 'Gerar código'}</button>
+        </>
+      )}
+    </Sheet>
   );
 }
