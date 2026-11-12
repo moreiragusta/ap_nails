@@ -7,7 +7,7 @@ export const content = {
   ownerFullName: 'Amanda Penteado',
   headline: 'Unhas bem cuidadas também são autoestima',
   intro: 'Atendimento individual e com hora marcada. Escolha o serviço, veja os horários livres e agende em menos de um minuto.',
-  logo: '/brand/logo-flyer.webp',
+  logo: '/brand/logo.webp',
 
   about: {
     title: 'Sobre mim',
