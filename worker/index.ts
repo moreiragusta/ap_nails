@@ -98,6 +98,9 @@ admin.route('/settings', settingsRoutes);
 app.route('/api/admin', admin);
 app.all('/api/*', (c) => c.json({ error: 'Rota não encontrada.' }, 404));
 
+// Páginas e arquivos do site (depois do requireHttps)
+app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw));
+
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
