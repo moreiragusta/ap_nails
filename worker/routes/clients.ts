@@ -3,6 +3,7 @@ import { addDays, nowIn } from '../../shared/time';
 import type { Appointment, Client } from '../../shared/types';
 import { APPT_SELECT, getSettings } from '../db';
 import { bad, type AppEnv } from '../env';
+import { audit } from '../security';
 import { idParam, longText, normalizePhone, text, validPhone } from '../util';
 
 export const clientRoutes = new Hono<AppEnv>();
@@ -59,7 +60,13 @@ clientRoutes.put('/:id', async (c) => {
   if (!validPhone(phone)) throw bad('WhatsApp inválido.');
   const dup = await c.env.DB.prepare('SELECT id FROM clients WHERE phone = ? AND id <> ?').bind(phone, id).first();
   if (dup) throw bad('Já existe outra cliente com esse WhatsApp.');
+  const before = await c.env.DB.prepare('SELECT name, phone FROM clients WHERE id = ?').bind(id).first<{ name: string; phone: string }>();
+  if (!before) throw bad('Cliente não encontrada.', 404);
   await c.env.DB.prepare('UPDATE clients SET name = ?, phone = ?, notes = ? WHERE id = ?')
     .bind(name, phone, longText(b.notes, 2000), id).run();
+  const ch: string[] = [];
+  if (before.name !== name) ch.push(`nome: ${before.name} → ${name}`);
+  if (before.phone !== phone) ch.push('WhatsApp alterado');
+  await audit(c, 'client_updated', `${name}${ch.length ? ` · ${ch.join(' · ')}` : ' · observações'}`);
   return c.json({ ok: true });
 });

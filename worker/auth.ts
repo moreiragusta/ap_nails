@@ -7,7 +7,11 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { getInternal, setInternal } from './db';
 import { bad, type AppEnv, type Ctx } from './env';
 import { notifyAdmin } from './push';
-import { checkLimits, clearHits, clientIp, failDelay, hit, logEvent, userAgent } from './security';
+import { nowIn } from '../shared/time';
+import {
+  assertIpAllowed, checkLimits, clearIpFailures, clientIp, countryName, failDelay, geoOf, hit, logEvent,
+  registerAuthFailure, userAgent,
+} from './security';
 
 const COOKIE = 'apn_session';
 const SESSION_DAYS = 30;
@@ -92,8 +96,10 @@ async function startSession(c: Ctx) {
   const token = toHex(crypto.getRandomValues(new Uint8Array(32)));
   const now = Date.now();
   const maxAge = SESSION_DAYS * 86400;
-  await c.env.DB.prepare('INSERT INTO sessions (token_hash, created_at, last_seen, expires_at, user_agent, ip) VALUES (?, ?, ?, ?, ?, ?)')
-    .bind(await sha256(token), now, now, now + maxAge * 1000, userAgent(c), clientIp(c)).run();
+  const g = geoOf(c);
+  const row = await c.env.DB.prepare('INSERT INTO sessions (token_hash, created_at, last_seen, expires_at, user_agent, ip, country, city) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id')
+    .bind(await sha256(token), now, now, now + maxAge * 1000, userAgent(c), clientIp(c), g.country, g.city).first<{ id: number }>();
+  if (row) c.set('sessionId', row.id);
   setCookie(c, COOKIE, token, {
     path: '/', httpOnly: true, sameSite: 'Strict', maxAge,
     secure: new URL(c.req.url).protocol === 'https:',
@@ -144,7 +150,6 @@ export async function logout(c: Ctx) {
 const MAX_FAILS = 3;
 const LOCK_STEPS = [30 * MIN, 2 * 60 * MIN, 24 * 60 * MIN];
 const LOGIN_ACCOUNT = 'login:account';
-const LOGIN_IP = (ip: string) => `login:ip:${ip}`;
 
 interface Lock { level: number; until: number; at: number }
 
@@ -204,7 +209,7 @@ const failCount = async (db: D1Database) => (await db.prepare('SELECT COUNT(*) A
 export async function login(c: Ctx, password: unknown) {
   const db = c.env.DB;
   const ip = clientIp(c);
-  await checkLimits(db, [{ key: LOGIN_IP(ip), max: 10, windowMs: 60 * MIN }]);
+  await assertIpAllowed(c); // IP bloqueado após 3 erros
 
   const lock = await readLock(db);
   if (lock && lock.until > Date.now()) {
@@ -215,10 +220,11 @@ export async function login(c: Ctx, password: unknown) {
 
   // Reserva a tentativa ANTES de conferir a senha: pedidos simultâneos não
   // conseguem passar de 3 palpites.
-  await hit(db, LOGIN_ACCOUNT, LOGIN_IP(ip));
+  await hit(db, LOGIN_ACCOUNT);
   const attempt = await failCount(db);
   if (attempt > MAX_FAILS) {
     // Rajada de pedidos ao mesmo tempo: os excedentes nem conferem a senha e viram bloqueio.
+    await registerAuthFailure(c, 'senha');
     await failDelay();
     throw lockedError(await applyLock(c, lock));
   }
@@ -227,6 +233,7 @@ export async function login(c: Ctx, password: unknown) {
   const ok = typeof password === 'string' && password.length <= 128 && await verifyPassword(password, stored);
   if (!ok) {
     await logEvent(c, 'login_fail', `${attempt}/${MAX_FAILS}`);
+    await registerAuthFailure(c, 'senha');
     await failDelay();
     if (!stored) throw bad('A senha ainda não foi criada. Use o link de primeiro acesso.', 401);
     if (attempt >= MAX_FAILS) throw lockedError(await applyLock(c, lock));
@@ -235,15 +242,58 @@ export async function login(c: Ctx, password: unknown) {
   }
 
   await clearLock(db);
-  await clearHits(db, LOGIN_IP(ip));
+  await clearIpFailures(db, ip);
+  const unusual = await analyzeLogin(c); // compara com os acessos anteriores
   await startSession(c);
   await logEvent(c, 'login_ok');
-  c.executionCtx.waitUntil(notifyAdmin(c.env, {
-    title: 'Novo acesso ao painel',
-    body: `${describeDevice(userAgent(c))} entrou agora. Não foi você? Abra Ajustes → Senha e acesso.`,
-    url: '/admin/ajustes/conta',
-    tag: `login-${Date.now()}`,
-  }));
+  const device = describeDevice(userAgent(c));
+  const g = geoOf(c);
+  const where = g.city ? ` em ${g.city}` : '';
+  c.executionCtx.waitUntil(notifyAdmin(c.env, unusual.length
+    ? {
+      title: '⚠️ Acesso fora do comum ao painel',
+      body: `${unusual.join(' · ')}. ${device}${where}. Não foi você? Troque a senha em Ajustes → Senha e segurança.`,
+      url: '/admin/ajustes/registro',
+      tag: `login-${Date.now()}`,
+    }
+    : {
+      title: 'Novo acesso ao painel',
+      body: `${device}${where} entrou agora. Não foi você? Abra Ajustes → Senha e segurança.`,
+      url: '/admin/ajustes/conta',
+      tag: `login-${Date.now()}`,
+    }));
+}
+
+// ------------------------------------------------------------ análise de comportamento
+
+/**
+ * Compara o login com o histórico dos últimos 180 dias e registra alertas:
+ * país novo, aparelho novo e horário fora do comum (00h às 6h).
+ * Devolve as descrições, para o aviso no celular.
+ */
+async function analyzeLogin(c: Ctx): Promise<string[]> {
+  const { results } = await c.env.DB.prepare("SELECT user_agent, country FROM security_events WHERE type = 'login_ok' AND at > ? ORDER BY at DESC LIMIT 500")
+    .bind(Date.now() - 180 * 24 * 60 * MIN).all<{ user_agent: string; country: string }>();
+  const found: string[] = [];
+  const g = geoOf(c);
+  if (results.length > 0) {
+    const countries = new Set(results.map((r) => r.country).filter(Boolean));
+    if (g.country && countries.size > 0 && !countries.has(g.country)) {
+      found.push(`País novo: ${countryName(g.country)}`);
+      await logEvent(c, 'new_country', `${countryName(g.country)}${g.city ? ` · ${g.city}` : ''}`, 'alert');
+    }
+    const device = describeDevice(userAgent(c));
+    if (!results.some((r) => describeDevice(r.user_agent) === device)) {
+      found.push(`Aparelho novo: ${device}`);
+      await logEvent(c, 'new_device', device, 'alert');
+    }
+  }
+  const hour = Math.floor(nowIn(c.env.BUSINESS_TZ).minutes / 60);
+  if (hour < 6) {
+    found.push(`Horário incomum: ${String(hour).padStart(2, '0')}h`);
+    await logEvent(c, 'odd_hour', `${String(hour).padStart(2, '0')}h`, 'alert');
+  }
+  return found;
 }
 
 // ------------------------------------------------------------ primeiro acesso (link de uso único)
@@ -251,6 +301,7 @@ export async function login(c: Ctx, password: unknown) {
 export async function setupWithToken(c: Ctx, token: unknown, password: unknown) {
   const db = c.env.DB;
   const ip = clientIp(c);
+  await assertIpAllowed(c);
   await checkLimits(db, [{ key: `setup:ip:${ip}`, max: 5, windowMs: 60 * MIN }, { key: 'setup:all', max: 20, windowMs: 24 * 60 * MIN }]);
   const raw = await getInternal(db, 'setup');
   const setup = raw ? JSON.parse(raw) as { hash: string; exp: number } : null;
@@ -259,6 +310,7 @@ export async function setupWithToken(c: Ctx, token: unknown, password: unknown) 
   if (!valid) {
     await hit(db, `setup:ip:${ip}`, 'setup:all');
     await logEvent(c, 'setup_link_fail');
+    await registerAuthFailure(c, 'link de acesso');
     await failDelay();
     throw bad('Este link de primeiro acesso é inválido ou expirou. Peça um novo à NUKKI.', 400);
   }
@@ -267,20 +319,25 @@ export async function setupWithToken(c: Ctx, token: unknown, password: unknown) 
   await setInternal(db, 'password_hash', await hashPassword(password as string));
   await db.prepare("DELETE FROM settings WHERE key = '_setup'").run();
   await revokeSessions(c, null);
+  await clearIpFailures(db, ip);
   const code = await newRecoveryCode(db);
+  await startSession(c);
   await logEvent(c, 'setup_link_used');
   await logEvent(c, 'password_created');
-  await startSession(c);
   return code;
 }
 
 // ------------------------------------------------------------ recuperação
 
+/**
+ * Funciona mesmo com o IP ou a conta bloqueados (é o caminho da Amanda para desbloquear),
+ * mas com limites próprios: 3 tentativas por hora por IP e 10 por dia no total.
+ */
 export async function recoverWithCode(c: Ctx, code: unknown, password: unknown) {
   const db = c.env.DB;
   const ip = clientIp(c);
   await checkLimits(db, [
-    { key: `recover:ip:${ip}`, max: 5, windowMs: 60 * MIN },
+    { key: `recover:ip:${ip}`, max: 3, windowMs: 60 * MIN },
     { key: 'recover:all', max: 10, windowMs: 24 * 60 * MIN, message: 'A recuperação foi bloqueada por hoje após muitas tentativas. Tente amanhã ou fale com a NUKKI.' },
   ]);
   const problem = passwordProblem(password);
@@ -291,16 +348,17 @@ export async function recoverWithCode(c: Ctx, code: unknown, password: unknown) 
   if (!ok) {
     await hit(db, `recover:ip:${ip}`, 'recover:all');
     await logEvent(c, 'recovery_fail');
+    await registerAuthFailure(c, 'código de recuperação');
     await failDelay();
     throw bad('Código de recuperação incorreto.', 401);
   }
   await setInternal(db, 'password_hash', await hashPassword(password as string));
   await revokeSessions(c, null);
   await clearLock(db); // o código de recuperação desbloqueia o acesso na hora
-  await clearHits(db, LOGIN_IP(ip));
+  await clearIpFailures(db, ip); // e libera o aparelho de quem o usou
   const fresh = await newRecoveryCode(db); // o código usado deixa de valer
-  await logEvent(c, 'recovery_used');
   await startSession(c);
+  await logEvent(c, 'recovery_used');
   c.executionCtx.waitUntil(notifyAdmin(c.env, {
     title: 'Senha redefinida', body: 'A senha do painel foi trocada com o código de recuperação.', url: '/admin/ajustes/conta', tag: 'recovery',
   }));
@@ -309,7 +367,7 @@ export async function recoverWithCode(c: Ctx, code: unknown, password: unknown) 
 
 // ------------------------------------------------------------ dentro do painel
 
-async function requireCurrentPassword(c: Ctx, current: unknown) {
+export async function requireCurrentPassword(c: Ctx, current: unknown) {
   const db = c.env.DB;
   const ip = clientIp(c);
   await checkLimits(db, [{ key: `reauth:ip:${ip}`, max: 5, windowMs: 15 * MIN }]);

@@ -34,7 +34,7 @@ export default function AdminApp() {
       setState('ready');
       registerSW();
     } catch (e) {
-      setState(e instanceof ApiError && e.status === 401 ? 'login' : 'error');
+      setState(e instanceof ApiError && (e.status === 401 || e.data.code === 'geo_blocked') ? 'login' : 'error');
     }
   }, []);
 

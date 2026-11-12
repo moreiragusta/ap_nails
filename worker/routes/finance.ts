@@ -3,6 +3,8 @@ import { addMonths, endOfMonth, isDate, nowIn, startOfMonth } from '../../shared
 import type { Appointment, Expense } from '../../shared/types';
 import { APPT_SELECT, getSettings } from '../db';
 import { bad, type AppEnv, type Ctx } from '../env';
+import { fmtDateShort, fmtMoney } from '../../shared/format';
+import { audit } from '../security';
 import { idParam, int, text } from '../util';
 
 export const financeRoutes = new Hono<AppEnv>();
@@ -95,18 +97,27 @@ financeRoutes.post('/expenses', async (c) => {
   const e = await readExpense(c);
   const r = await c.env.DB.prepare('INSERT INTO expenses (date, description, category, amount_cents) VALUES (?, ?, ?, ?) RETURNING *')
     .bind(e.date, e.description, e.category, e.amount).first<Expense>();
+  await audit(c, 'expense_created', `${e.description} · ${fmtMoney(e.amount)} · ${fmtDateShort(e.date)}`);
   return c.json(r, 201);
 });
 
 financeRoutes.put('/expenses/:id', async (c) => {
   const id = idParam(c.req.param('id'));
   const e = await readExpense(c);
+  const before = await c.env.DB.prepare('SELECT description, amount_cents FROM expenses WHERE id = ?').bind(id).first<{ description: string; amount_cents: number }>();
+  if (!before) throw bad('Despesa não encontrada.', 404);
   await c.env.DB.prepare('UPDATE expenses SET date = ?, description = ?, category = ?, amount_cents = ? WHERE id = ?')
     .bind(e.date, e.description, e.category, e.amount, id).run();
+  const value = before.amount_cents !== e.amount ? `${fmtMoney(before.amount_cents)} → ${fmtMoney(e.amount)}` : fmtMoney(e.amount);
+  await audit(c, 'expense_updated', `${e.description} · ${value}`);
   return c.json({ ok: true });
 });
 
 financeRoutes.delete('/expenses/:id', async (c) => {
-  await c.env.DB.prepare('DELETE FROM expenses WHERE id = ?').bind(idParam(c.req.param('id'))).run();
+  const id = idParam(c.req.param('id'));
+  const before = await c.env.DB.prepare('SELECT description, amount_cents, date FROM expenses WHERE id = ?').bind(id)
+    .first<{ description: string; amount_cents: number; date: string }>();
+  await c.env.DB.prepare('DELETE FROM expenses WHERE id = ?').bind(id).run();
+  if (before) await audit(c, 'expense_deleted', `${before.description} · ${fmtMoney(before.amount_cents)} · ${fmtDateShort(before.date)}`);
   return c.json({ ok: true });
 });

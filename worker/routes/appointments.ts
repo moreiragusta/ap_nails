@@ -5,6 +5,8 @@ import {
   APPT_SELECT, findConflict, getAppointment, getService, getSettings, slotsForRange, upsertClient,
 } from '../db';
 import { bad, nowISO, type AppEnv, type Ctx } from '../env';
+import { fmtDateShort, fmtMoney } from '../../shared/format';
+import { audit } from '../security';
 import { idParam, longText, normalizePhone, text, validPhone } from '../util';
 
 export const appointmentRoutes = new Hono<AppEnv>();
@@ -100,7 +102,9 @@ appointmentRoutes.post('/', async (c) => {
        status, source, notes, confirmed_at, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'admin', ?, ?, ?) RETURNING id`,
   ).bind(clientId, svc.id, svc.name, svc.price_cents, svc.duration_min, date, start, end, longText(b.notes, 1000), now, now).first<{ id: number }>();
-  return c.json(await getAppointment(db, r!.id), 201);
+  const created = await getAppointment(db, r!.id);
+  await audit(c, 'appt_created', `${created?.client_name} · ${svc.name} · ${fmtDateShort(date)} ${start}${b.force ? ' · encaixe forçado' : ''}`);
+  return c.json(created, 201);
 });
 
 /** Remarcar, trocar serviço ou editar observações. */
@@ -129,6 +133,11 @@ appointmentRoutes.patch('/:id', async (c) => {
     `UPDATE appointments SET service_id = ?, service_name = ?, price_cents = ?, duration_min = ?, date = ?, start_time = ?,
        end_time = ?, notes = ?, reminder_sent_at = CASE WHEN ? THEN NULL ELSE reminder_sent_at END WHERE id = ?`,
   ).bind(service_id, service_name, price_cents, duration_min, date, start_time, end, notes, moved ? 1 : 0, id).run();
+  const changes: string[] = [];
+  if (date !== a.date || start_time !== a.start_time) changes.push(`${fmtDateShort(a.date)} ${a.start_time} → ${fmtDateShort(date)} ${start_time}`);
+  if (service_id !== a.service_id) changes.push(`${a.service_name} → ${service_name}`);
+  if (price_cents !== a.price_cents) changes.push(`${fmtMoney(a.price_cents)} → ${fmtMoney(price_cents)}`);
+  if (changes.length) await audit(c, 'appt_updated', `${a.client_name} · ${changes.join(' · ')}`);
   return c.json(await getAppointment(db, id));
 });
 
@@ -186,6 +195,11 @@ appointmentRoutes.post('/:id/action', async (c) => {
     }
     default:
       throw bad('Ação desconhecida.');
+  }
+  const AUDITED: Record<string, string> = { confirm: 'appt_confirmed', complete: 'appt_completed', cancel: 'appt_cancelled', reopen: 'appt_reopened' };
+  if (AUDITED[action]) {
+    const extra = action === 'complete' ? ` · ${fmtMoney(a.price_cents)} · ${payment_method}` : action === 'reopen' ? ` · estava ${a.status}` : '';
+    await audit(c, AUDITED[action], `${a.client_name} · ${fmtDateShort(a.date)} ${a.start_time}${extra}`);
   }
   return c.json(await getAppointment(db, id));
 });

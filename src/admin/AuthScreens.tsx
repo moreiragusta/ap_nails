@@ -3,7 +3,13 @@ import { api, ApiError, errorMessage } from '../lib/api';
 import { Turnstile } from '../lib/turnstile';
 import { Icon, toast } from './ui';
 
-interface AuthConfig { turnstile_site_key: string | null; has_password: boolean; locked_until?: number | null }
+interface AuthConfig {
+  turnstile_site_key: string | null;
+  has_password: boolean;
+  locked_until?: number | null;
+  ip_locked_until?: number | null;
+  geo_blocked?: boolean;
+}
 
 function useAuthConfig() {
   const [cfg, setCfg] = useState<AuthConfig | null>(null);
@@ -110,8 +116,10 @@ export function Login({ onDone, onForgot }: { onDone: () => void; onForgot: () =
   const [token, setToken] = useState<string | null>(null);
   const [tsReset, setTsReset] = useState(0);
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const [lockKind, setLockKind] = useState<'account' | 'device' | null>(null);
   const needToken = !!cfg?.turnstile_site_key;
-  const locked = lockedUntil ?? cfg?.locked_until ?? null;
+  const locked = lockedUntil ?? cfg?.locked_until ?? cfg?.ip_locked_until ?? null;
+  const kind = lockKind ?? (cfg?.locked_until ? 'account' : 'device');
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -121,7 +129,10 @@ export function Login({ onDone, onForgot }: { onDone: () => void; onForgot: () =
       await api('/api/admin/login', { body: { password, turnstile: token } });
       onDone();
     } catch (err) {
-      if (err instanceof ApiError && err.status === 423) setLockedUntil(Number(err.data.locked_until) || Date.now());
+      if (err instanceof ApiError && err.status === 423) {
+        setLockedUntil(Number(err.data.locked_until) || Date.now());
+        setLockKind(err.data.code === 'ip_blocked' ? 'device' : 'account');
+      }
       setError(errorMessage(err));
       setPassword('');
       setTsReset((n) => n + 1);
@@ -138,12 +149,27 @@ export function Login({ onDone, onForgot }: { onDone: () => void; onForgot: () =
     );
   }
 
+  if (cfg?.geo_blocked) {
+    return (
+      <Frame title="Acesso indisponível">
+        <p className="callout danger"><Icon name="shield" size={18} />
+          <span>Por segurança, o painel só pode ser aberto de dentro do Brasil. Se você está viajando, fale com a NUKKI.</span>
+        </p>
+      </Frame>
+    );
+  }
+
   if (locked && locked > Date.now()) {
     const hora = new Date(locked).toLocaleString('pt-BR', { hour: '2-digit', minute: '2-digit', day: locked - Date.now() > 12 * 3600_000 ? '2-digit' : undefined, month: locked - Date.now() > 12 * 3600_000 ? '2-digit' : undefined });
     return (
       <Frame title="Acesso bloqueado">
         <p className="callout danger"><Icon name="shield" size={18} />
-          <span>Foram digitadas 3 senhas erradas seguidas. Por segurança, o login fica bloqueado até <b className="num">{hora}</b>. A sua senha não foi descoberta.</span>
+          <span>
+            {kind === 'device'
+              ? <>Houve 3 tentativas erradas a partir desta conexão. Por segurança, ela fica bloqueada até <b className="num">{hora}</b>.</>
+              : <>Foram digitadas 3 senhas erradas seguidas. Por segurança, o login fica bloqueado até <b className="num">{hora}</b>.</>}
+            {' '}A sua senha não foi descoberta.
+          </span>
         </p>
         <button type="button" className="btn btn-primary btn-block btn-lg" style={{ marginTop: 18 }} onClick={onForgot}>Desbloquear com o código de recuperação</button>
         <p className="hint" style={{ marginTop: 12 }}>Se não foi você, use o código e crie uma senha nova. Os aparelhos conectados serão desligados.</p>

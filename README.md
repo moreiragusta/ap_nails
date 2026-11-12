@@ -94,7 +94,7 @@ Em `localhost` as notificações funcionam no Chrome. No celular, elas exigem o 
      npx wrangler secret put TURNSTILE_SECRET_KEY
      ```
    Sem essas chaves, o site publicado **recusa** agendamentos e logins (falha fechada).
-6. Aplique o esquema do banco e publique:
+6. Aplique o esquema do banco (todas as migrações em `migrations/`) e publique:
    ```bash
    npm run db:migrate:remote
    ```
@@ -134,20 +134,51 @@ O site fica em `https://ap-nails.<sua-conta>.workers.dev`. Para usar domínio pr
 
 ## Segurança
 
+### Proteção da aplicação
+
 | Proteção | Como funciona |
 | --- | --- |
-| Senha | Criada pela própria administradora (link de uso único). PBKDF2-SHA256 com 100 mil iterações e sal. Mínimo de 8 caracteres e bloqueio de senhas óbvias |
-| Recuperação | Código de 16 caracteres mostrado uma única vez; após o uso é trocado. Só o hash fica guardado |
-| Tentativas de login | **3 senhas erradas seguidas bloqueiam a conta** (de qualquer aparelho): 30 min no 1º bloqueio, 2 h no 2º, 24 h a partir do 3º. Nem a senha certa entra durante o bloqueio; o código de recuperação desbloqueia na hora. A Amanda recebe aviso no celular. Também há limite de 10 tentativas/h por IP e atraso proposital em cada erro |
+| HTTPS | Certificado automático da Cloudflare. O Worker redireciona `http://` para `https://` (e recusa envios sem HTTPS); HSTS de 1 ano em `public/_headers`. No domínio, ative também *Always Use HTTPS* (ver abaixo) |
+| WAF | Regras gerenciadas da Cloudflare + regras próprias (bloqueio do painel fora do Brasil e limite no login). Exige domínio próprio na Cloudflare — passo a passo abaixo |
+| SQL Injection | Todas as consultas ao D1 usam parâmetros (`?`); nenhum valor vindo do usuário é colado no SQL |
+| XSS | O React escapa todo conteúdo exibido, não há HTML injetado e a CSP só permite scripts do próprio site e do Turnstile |
+| Força bruta (conta) | **3 senhas erradas seguidas bloqueiam a conta**, de qualquer aparelho: 30 min, depois 2 h, depois 24 h. Nem a senha certa entra; o código de recuperação desbloqueia na hora |
+| Força bruta (IP) | **3 tentativas erradas do mesmo IP** (senha, código de recuperação ou link de acesso) bloqueiam o IP: 1 h, 6 h, 24 h e 7 dias. A recuperação continua possível (3/h por IP, 10/dia no total) para a Amanda conseguir se desbloquear |
+| Painel só no Brasil | Ligado por padrão: acessos de outros países, de local desconhecido ou da rede Tor são barrados, mesmo com a senha certa. A Amanda pode desligar (com a senha) antes de viajar |
 | Antirrobô | Cloudflare Turnstile no agendamento, login, recuperação e primeiro acesso, validado no servidor |
 | Agendamento público | Turnstile + 6 pedidos/h por IP + 60/h no total + no máximo 2 pendentes por WhatsApp |
-| Sessões | Cookie `HttpOnly`, `Secure` e `SameSite=Strict`, válido por 30 dias. Lista de aparelhos, “desconectar outros” e aviso no celular a cada novo acesso |
+| Senha | Criada pela própria administradora (link de uso único). PBKDF2-SHA256 com 100 mil iterações e sal. Mínimo de 8 caracteres e bloqueio de senhas óbvias |
+| Recuperação | Código de 16 caracteres mostrado uma única vez; após o uso é trocado. Só o hash fica guardado |
+| Sessões | Cookie `HttpOnly`, `Secure` e `SameSite=Strict`, válido por 30 dias. Lista de aparelhos e “desconectar outros” |
 | CSRF | Ações que alteram dados só são aceitas com `Origin` do próprio site |
 | Cabeçalhos | CSP, HSTS, `nosniff`, `frame-ancestors 'none'` e painel sem cache nem indexação (`public/_headers`) |
 | Fotos | O servidor confere a assinatura real do arquivo (JPG/PNG/WebP) e o tamanho máximo de 3 MB |
-| Histórico | Eventos de segurança ficam 90 dias; tentativas e IPs são apagados após 1 dia |
 
-Como camada extra opcional, a Cloudflare oferece no plano gratuito uma regra de *Rate limiting* (Security → WAF). Ela pode limitar `/api/admin/login` antes mesmo de a requisição chegar ao Worker.
+### Monitoramento e auditoria
+
+| Item | Como funciona |
+| --- | --- |
+| Registro de acessos | Todo login (certo ou errado), bloqueio, troca de senha, recuperação e desconexão fica gravado com data, hora, IP, aparelho, país, cidade e provedor |
+| Ações críticas | Criar, remarcar, confirmar, concluir, cancelar e reabrir agendamentos; criar, alterar preço, ocultar e excluir serviços; alterar clientes; lançar, alterar e excluir despesas; mudar ajustes, horários e folgas; ativar notificações |
+| Tela de registro | *Mais → Registro de atividades*, com filtros (alertas, acessos, alterações) e detalhes de IP e provedor |
+| Análise de comportamento | Alerta (registro + aviso no celular) para: país novo, aparelho novo, horário incomum (0h–6h), tentativa de fora do Brasil, IP bloqueado e 3+ IPs diferentes errando a senha em 1 hora (ataque distribuído) |
+| Logs da Cloudflare | `observability` ligado no `wrangler.jsonc`: cada requisição ao Worker fica nos *Workers Logs* do painel da Cloudflare |
+| Retenção (LGPD) | Acessos e alertas: 90 dias. Alterações: 1 ano. Tentativas: 1 dia. IPs bloqueados: 7 dias após o fim do bloqueio. A limpeza é automática (cron) |
+
+### Ajustes no painel da Cloudflare (com domínio próprio)
+
+Depois de adicionar o domínio na conta da NUKKI:
+
+1. **SSL/TLS → Overview**: modo **Full (strict)**.
+2. **SSL/TLS → Edge Certificates**: ligue *Always Use HTTPS*; *Minimum TLS Version* = **TLS 1.2**; ligue *HSTS* (6 meses ou mais, com subdomínios).
+3. **Security → WAF → Managed rules**: ative o *Cloudflare Free Managed Ruleset*.
+4. **Security → WAF → Custom rules** (o plano gratuito permite 5):
+   - *Painel fora do Brasil*: `(starts_with(http.request.uri.path, "/admin") or starts_with(http.request.uri.path, "/api/admin")) and ip.src.country ne "BR"` → **Block**. Desative antes de a Amanda viajar.
+   - *Métodos estranhos*: `not http.request.method in {"GET" "HEAD" "POST" "PUT" "PATCH" "DELETE" "OPTIONS"}` → **Block**.
+5. **Security → WAF → Rate limiting rules** (1 gratuita): `http.request.uri.path eq "/api/admin/login"`, 5 requisições por 10 segundos por IP → **Block** por 10 segundos.
+6. **Security → Bots**: ligue *Bot Fight Mode*.
+
+No endereço `*.workers.dev` esses ajustes não existem; as proteções do próprio Worker (tabela acima) valem nos dois casos.
 
 ## Regras de negócio (resumo)
 

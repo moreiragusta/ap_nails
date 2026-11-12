@@ -10,7 +10,7 @@ import { financeRoutes } from './routes/finance';
 import { publicRoutes } from './routes/public';
 import { serviceRoutes } from './routes/services';
 import { settingsRoutes } from './routes/settings';
-import { apiHeaders, sameOrigin, verifyTurnstile } from './security';
+import { apiHeaders, clientIp, geoBlocked, geoGuard, ipBlock, requireHttps, sameOrigin, verifyTurnstile } from './security';
 
 const app = new Hono<AppEnv>();
 
@@ -22,6 +22,7 @@ app.onError((err, c) => {
   return c.json({ error: 'Algo deu errado. Tente novamente.' }, 500);
 });
 
+app.use('*', requireHttps);
 app.use('/api/*', apiHeaders);
 
 // Fotos dos serviços (R2), com cache longo: a chave muda a cada nova foto.
@@ -46,12 +47,15 @@ app.route('/api/public', publicRoutes);
 // ---------------------------------------------------------------- painel
 const admin = new Hono<AppEnv>();
 admin.use('*', sameOrigin);
+admin.use('*', geoGuard); // painel só nos países liberados (padrão: Brasil)
 
 /** Dados para a tela de entrada: antirrobô e se a senha já foi criada. */
 admin.get('/auth/config', async (c) => c.json({
   turnstile_site_key: c.env.TURNSTILE_SITE_KEY || null,
   has_password: await hasPassword(c.env.DB),
   locked_until: await lockStatus(c.env.DB),
+  ip_locked_until: await ipBlock(c.env.DB, clientIp(c)).then((b) => (b && b.until > Date.now() ? b.until : null)),
+  geo_blocked: await geoBlocked(c),
 }));
 
 admin.post('/login', async (c) => {
