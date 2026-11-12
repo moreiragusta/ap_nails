@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { getService, listServices } from '../db';
 import { bad, type AppEnv, type Ctx } from '../env';
-import { detectImage } from '../security';
+import { fmtMoney } from '../../shared/format';
+import { audit, detectImage } from '../security';
 import { idParam, int, longText, text } from '../util';
 
 export const serviceRoutes = new Hono<AppEnv>();
@@ -74,6 +75,17 @@ async function save(c: Ctx, id: number | null) {
     await db.prepare('UPDATE services SET photo_key = ? WHERE id = ?').bind(key, id).run();
     if (current?.photo_key) await c.env.PHOTOS.delete(current.photo_key);
   }
+  if (!current) {
+    await audit(c, 'service_created', `${name} · ${fmtMoney(price)}`);
+  } else {
+    const ch: string[] = [];
+    if (current.name !== name) ch.push(`nome: ${current.name} → ${name}`);
+    if (current.price_cents !== price) ch.push(`preço: ${fmtMoney(current.price_cents)} → ${fmtMoney(price)}`);
+    if (current.duration_min !== duration) ch.push(`duração: ${current.duration_min} → ${duration} min`);
+    if (!!current.active !== active) ch.push(active ? 'voltou ao site' : 'oculto do site');
+    if (photo) ch.push('nova foto');
+    if (ch.length) await audit(c, 'service_updated', `${name} · ${ch.join(' · ')}`);
+  }
   const all = await listServices(db);
   return c.json(all.find((s) => s.id === id), id && current ? 200 : 201);
 }
@@ -98,9 +110,11 @@ serviceRoutes.delete('/:id', async (c) => {
   const used = await db.prepare('SELECT 1 FROM appointments WHERE service_id = ? LIMIT 1').bind(id).first();
   if (used) {
     await db.prepare('UPDATE services SET active = 0 WHERE id = ?').bind(id).run();
+    await audit(c, 'service_hidden', `${svc.name} (tem histórico, ficou oculto)`);
     return c.json({ deleted: false, deactivated: true });
   }
   await db.prepare('DELETE FROM services WHERE id = ?').bind(id).run();
   if (svc.photo_key) await c.env.PHOTOS.delete(svc.photo_key);
+  await audit(c, 'service_deleted', `${svc.name} · ${fmtMoney(svc.price_cents)}`);
   return c.json({ deleted: true });
 });

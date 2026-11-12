@@ -20,6 +20,7 @@ const TITLES: Record<string, string> = {
   notificacoes: 'Notificações',
   'clientes-despesas': 'Clientes e despesas',
   conta: 'Senha e segurança',
+  registro: 'Registro de atividades',
 };
 
 /** Uma seção de ajustes por página (aberta a partir da aba Mais). */
@@ -50,6 +51,7 @@ export default function SettingsSection() {
     notificacoes: <Notifications settings={settings} save={save} />,
     'clientes-despesas': <Others settings={settings} save={save} />,
     conta: <Security />,
+    registro: <AuditLog />,
   }[section];
 
   return (
@@ -412,6 +414,9 @@ interface SecurityInfo {
   sessions: { id: number; created_at: number; last_seen: number; device: string; current: boolean }[];
   events: { type: string; at: number; device: string }[];
   recovery: { created_at: number } | null;
+  ip_blocks: { ip: string; until: number; level: number; reason: string; at: number }[];
+  geo: { enabled: boolean; countries: string[] };
+  here: { ip: string; country: string; country_name: string; city: string };
 }
 
 type IconName = Parameters<typeof Icon>[0]['name'];
@@ -429,6 +434,35 @@ const EVENT_LABEL: Record<string, [string, IconName, string]> = {
   setup_link_used: ['Link de primeiro acesso usado', 'link', 'warn'],
   setup_link_fail: ['Link de primeiro acesso inválido', 'alert', 'bad'],
   sessions_revoked: ['Aparelhos desconectados', 'logout', ''],
+  geo_changed: ['Restrição por país alterada', 'shield', 'warn'],
+  ip_unblocked: ['IP liberado manualmente', 'shield', ''],
+  // alertas
+  ip_blocked: ['IP bloqueado (3 tentativas erradas)', 'alert', 'bad'],
+  geo_blocked: ['Tentativa de fora do Brasil bloqueada', 'alert', 'bad'],
+  distributed_attack: ['Vários IPs errando a senha', 'alert', 'bad'],
+  new_country: ['Acesso de um país novo', 'alert', 'warn'],
+  new_device: ['Acesso de um aparelho novo', 'phone', 'warn'],
+  odd_hour: ['Acesso em horário incomum', 'clock', 'warn'],
+  // alterações no painel
+  appt_created: ['Agendamento criado', 'calendar', 'ok'],
+  appt_updated: ['Agendamento alterado', 'pencil', ''],
+  appt_confirmed: ['Agendamento confirmado', 'check', 'ok'],
+  appt_completed: ['Atendimento concluído', 'money', 'ok'],
+  appt_cancelled: ['Agendamento cancelado', 'x', 'bad'],
+  appt_reopened: ['Agendamento reaberto', 'undo', 'warn'],
+  service_created: ['Serviço criado', 'scissors', 'ok'],
+  service_updated: ['Serviço alterado', 'scissors', ''],
+  service_hidden: ['Serviço ocultado', 'scissors', 'warn'],
+  service_deleted: ['Serviço excluído', 'trash', 'bad'],
+  client_updated: ['Cliente alterada', 'users', ''],
+  expense_created: ['Despesa lançada', 'wallet', ''],
+  expense_updated: ['Despesa alterada', 'wallet', 'warn'],
+  expense_deleted: ['Despesa excluída', 'trash', 'bad'],
+  settings_updated: ['Ajustes alterados', 'settings', ''],
+  hours_updated: ['Horários alterados', 'clock', ''],
+  exception_created: ['Folga ou bloqueio criado', 'calendar', ''],
+  exception_deleted: ['Folga ou bloqueio removido', 'calendar', 'warn'],
+  push_subscribed: ['Notificações ativadas', 'bell', ''],
 };
 
 function ago(ms: number) {
@@ -442,7 +476,8 @@ function ago(ms: number) {
 
 function Security() {
   const [info, setInfo] = useState<SecurityInfo | null>(null);
-  const [mode, setMode] = useState<'password' | 'recovery' | null>(null);
+  const [mode, setMode] = useState<'password' | 'recovery' | 'geo' | null>(null);
+  const navigate = useNavigate();
   const load = () => api<SecurityInfo>('/api/admin/settings/security').then(setInfo).catch(() => {});
   useEffect(() => { load(); }, []);
 
@@ -457,6 +492,11 @@ function Security() {
     toast('Aparelho desconectado');
     load();
   }
+  async function unblock(ip: string) {
+    await api(`/api/admin/settings/ip-blocks/${encodeURIComponent(ip)}`, { method: 'DELETE' });
+    toast('IP liberado');
+    load();
+  }
   async function logout() {
     if (!(await confirmDialog('Sair deste celular?', { text: 'Você vai precisar da senha para entrar de novo.', ok: 'Sair' }))) return;
     await api('/api/admin/logout', { body: {} }).catch(() => {});
@@ -466,6 +506,8 @@ function Security() {
   const others = info?.sessions.filter((x) => !x.current) ?? [];
   const dayAgo = Date.now() - 86400_000;
   const failures = info?.events.filter((e) => e.at > dayAgo && ['login_fail', 'recovery_fail', 'setup_link_fail'].includes(e.type)).length ?? 0;
+  const alerts = info?.events.filter((e) => e.at > dayAgo && ['new_country', 'geo_blocked', 'distributed_attack', 'ip_blocked'].includes(e.type)).length ?? 0;
+  const where = info?.here.country ? [info.here.city, info.here.country_name].filter(Boolean).join(', ') : '';
 
   return (
     <>
@@ -492,6 +534,45 @@ function Security() {
           <Icon name="right" size={18} className="chev" />
         </button>
       </div>
+
+      <div className="sec-head"><h3>Proteção</h3></div>
+      <div className="rows">
+        <button type="button" className="row-item" onClick={() => setMode('geo')}>
+          <span className={`menu-icon${info?.geo.enabled ? ' ok' : ' warn'}`}><Icon name="shield" size={19} /></span>
+          <span className="grow">
+            <span className="row-title">Painel só no Brasil</span>
+            <small>{info?.geo.enabled ? 'Ligado · acessos de outros países são barrados' : 'Desligado · aceita qualquer país'}{where ? ` · você está em ${where}` : ''}</small>
+          </span>
+          <span className="switch" aria-hidden><input type="checkbox" readOnly checked={!!info?.geo.enabled} tabIndex={-1} /><span /></span>
+        </button>
+        <button type="button" className="row-item" onClick={() => navigate('/admin/ajustes/registro')}>
+          <span className={`menu-icon${alerts ? ' bad' : ''}`}><Icon name="clock" size={19} /></span>
+          <span className="grow">
+            <span className="row-title">Registro de atividades</span>
+            <small>{alerts ? `${alerts} alerta${alerts > 1 ? 's' : ''} nas últimas 24h` : 'Acessos, alterações e alertas'}</small>
+          </span>
+          <Icon name="right" size={18} className="chev" />
+        </button>
+      </div>
+
+      {info && info.ip_blocks.length > 0 && (
+        <>
+          <div className="sec-head"><h3>IPs bloqueados</h3></div>
+          <p className="hint">Bloqueados automaticamente após 3 tentativas erradas. Só libere se tiver certeza de que foi você.</p>
+          <div className="rows">
+            {info.ip_blocks.map((b) => (
+              <div key={b.ip} className="row-item">
+                <span className="menu-icon bad"><Icon name="alert" size={17} /></span>
+                <span className="grow">
+                  <span className="row-title num">{b.ip}{b.ip === info.here.ip && <span className="tag-here">este</span>}</span>
+                  <small>Errou {b.reason} · até {new Date(b.until).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</small>
+                </span>
+                <button type="button" className="text-btn" onClick={() => unblock(b.ip)}>Liberar</button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       <div className="sec-head"><h3>Aparelhos conectados</h3>{others.length > 0 && <button type="button" className="link" onClick={revokeOthers}>Desconectar outros</button>}</div>
       <div className="rows">
@@ -527,6 +608,7 @@ function Security() {
 
       {mode === 'password' && <ChangePassword onClose={() => { setMode(null); load(); }} />}
       {mode === 'recovery' && <NewRecoveryCode onClose={() => { setMode(null); load(); }} />}
+      {mode === 'geo' && info && <GeoSheet enabled={info.geo.enabled} onClose={() => { setMode(null); load(); }} />}
     </>
   );
 }
@@ -573,6 +655,128 @@ function NewRecoveryCode({ onClose }: { onClose: () => void }) {
           <button type="button" className="btn btn-primary btn-block btn-lg" disabled={busy || !current} onClick={generate}>{busy ? 'Gerando…' : 'Gerar código'}</button>
         </>
       )}
+    </Sheet>
+  );
+}
+
+// ------------------------------------------------------------ registro de atividades
+
+interface AuditEvent {
+  id: number; type: string; category: 'security' | 'action' | 'alert'; detail: string; ip: string;
+  device: string; country: string; country_name: string; city: string; network: string; at: number;
+}
+
+const AUDIT_FILTERS = [
+  ['', 'Tudo'], ['alert', 'Alertas'], ['security', 'Acessos'], ['action', 'Alterações'],
+] as const;
+
+const dayLabel = (ms: number) => {
+  const d = new Date(ms);
+  const today = new Date();
+  const y = new Date(); y.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return 'Hoje';
+  if (d.toDateString() === y.toDateString()) return 'Ontem';
+  const s = d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+
+function AuditLog() {
+  const [filter, setFilter] = useState('');
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [more, setMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState<number | null>(null);
+
+  async function load(reset: boolean) {
+    setLoading(true);
+    const before = reset ? '' : `&before=${events[events.length - 1]?.at ?? ''}`;
+    try {
+      const r = await api<{ events: AuditEvent[]; more: boolean }>(`/api/admin/settings/audit?category=${filter}${before}`);
+      setEvents(reset ? r.events : [...events, ...r.events]);
+      setMore(r.more);
+    } catch (e) { toast(errorMessage(e), 'error'); } finally { setLoading(false); }
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(true); }, [filter]);
+
+  const groups: [string, AuditEvent[]][] = [];
+  for (const e of events) {
+    const day = dayLabel(e.at);
+    if (groups.length && groups[groups.length - 1][0] === day) groups[groups.length - 1][1].push(e);
+    else groups.push([day, [e]]);
+  }
+  return (
+    <>
+      <p className="hint" style={{ marginTop: 12 }}>
+        Tudo o que acontece no painel fica registrado com data, hora, aparelho, local aproximado e IP.
+        Acessos e alertas ficam guardados por 90 dias; alterações, por 1 ano.
+      </p>
+      <div className="chips" style={{ margin: '14px 0 4px' }}>
+        {AUDIT_FILTERS.map(([v, label]) => (
+          <button key={v} type="button" className={`chip chip-sm${filter === v ? ' is-selected' : ''}`} onClick={() => setFilter(v)}>{label}</button>
+        ))}
+      </div>
+
+      {!loading && events.length === 0 && <Empty icon="shield" title="Nada por aqui" text="Nenhum registro com esse filtro." />}
+
+      {groups.map(([day, list]) => (
+        <div key={day}>
+          <div className="sec-head"><h3>{day}</h3></div>
+          <div className="rows">
+            {list.map((e) => <AuditRow key={e.id} e={e} open={open === e.id} onToggle={() => setOpen(open === e.id ? null : e.id)} />)}
+          </div>
+        </div>
+      ))}
+
+      {more && <button type="button" className="btn btn-ghost btn-block" style={{ marginTop: 16 }} disabled={loading} onClick={() => load(false)}>{loading ? 'Carregando…' : 'Ver mais antigos'}</button>}
+    </>
+  );
+}
+
+function AuditRow({ e, open, onToggle }: { e: AuditEvent; open: boolean; onToggle: () => void }) {
+  const [label, icon, tone] = EVENT_LABEL[e.type] ?? [e.type, 'shield' as IconName, ''];
+  const place = [e.city, e.country_name].filter(Boolean).join(', ');
+  return (
+    <button type="button" className={`row-item audit-row${e.category === 'alert' ? ' is-alert' : ''}`} onClick={onToggle}>
+      <span className={`menu-icon ${tone}`}><Icon name={icon} size={17} /></span>
+      <span className="grow">
+        <span className="row-title">{label}</span>
+        {e.detail && <small className="audit-detail">{e.detail}</small>}
+        <small>{e.device}{place ? ` · ${place}` : ''}</small>
+        {open && (
+          <small className="audit-more">
+            IP {e.ip || '—'}{e.network ? ` · ${e.network}` : ''}<br />
+            {new Date(e.at).toLocaleString('pt-BR')}
+          </small>
+        )}
+      </span>
+      <small className="muted num">{new Date(e.at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</small>
+    </button>
+  );
+}
+
+// ------------------------------------------------------------ restrição por país
+
+function GeoSheet({ enabled, onClose }: { enabled: boolean; onClose: () => void }) {
+  const [current, setCurrent] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    setBusy(true);
+    try {
+      await api('/api/admin/settings/geo', { body: { enabled: !enabled, current } });
+      toast(enabled ? 'Acesso liberado para qualquer país' : 'Painel liberado só no Brasil');
+      onClose();
+    } catch (e) { toast(errorMessage(e), 'error'); } finally { setBusy(false); }
+  }
+  return (
+    <Sheet title={enabled ? 'Liberar acesso de fora do Brasil?' : 'Aceitar acesso só do Brasil?'} onClose={onClose}
+      footer={<button type="button" className={`btn btn-block btn-lg ${enabled ? 'btn-danger' : 'btn-primary'}`} disabled={busy || !current} onClick={save}>{busy ? 'Salvando…' : enabled ? 'Liberar outros países' : 'Ligar restrição'}</button>}>
+      <p className="hint">
+        {enabled
+          ? 'Use só se for viajar para fora do Brasil. Ao voltar, ligue de novo: a maioria dos ataques vem de outros países.'
+          : 'Acessos ao painel vindos de fora do Brasil serão bloqueados, mesmo com a senha certa. Você recebe um aviso a cada tentativa.'}
+      </p>
+      <label className="field"><span>Confirme sua senha</span><input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" /></label>
     </Sheet>
   );
 }

@@ -495,3 +495,12 @@ body.no-scroll { overflow: hidden; }
 .login-card form { text-align: left; }
 .login-card .hint { text-align: left; }
 .tag-here { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: var(--green-bg); color: var(--green); font: 600 11px var(--sans); vertical-align: 2px; }
+
+/* ------------------------------------------------ registro de atividades */
+.audit-row { width: 100%; text-align: left; align-items: flex-start; }
+.audit-row .menu-icon { margin-top: 2px; }
+.audit-row .grow small { display: block; }
+.audit-row .audit-detail { color: var(--ink-2); margin-top: 2px; }
+.audit-row .audit-more { margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: var(--ivory); color: var(--ink-2); font-variant-numeric: tabular-nums; line-height: 1.5; }
+.audit-row.is-alert { box-shadow: inset 3px 0 0 var(--red); }
+.audit-row > small.muted { flex-shrink: 0; padding-top: 2px; }

@@ -24,7 +24,8 @@ const GROUPS: { title: string; items: { to: string; icon: IconName; label: strin
     items: [
       { to: '/admin/ajustes/negocio', icon: 'sparkle', label: 'Seu negócio', sub: 'Endereço, WhatsApp e Instagram' },
       { to: '/admin/ajustes/clientes-despesas', icon: 'users', label: 'Clientes e despesas', sub: 'Clientes sumidas e categorias' },
-      { to: '/admin/ajustes/conta', icon: 'shield', label: 'Senha e segurança', sub: 'Senha, código de recuperação e aparelhos' },
+      { to: '/admin/ajustes/conta', icon: 'shield', label: 'Senha e segurança', sub: 'Senha, aparelhos e restrição por país' },
+      { to: '/admin/ajustes/registro', icon: 'clock', label: 'Registro de atividades', sub: 'Acessos, alterações e alertas' },
     ],
   },
 ];
